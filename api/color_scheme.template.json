@@ -1,0 +1,27 @@
+{
+  "id": "my-custom-theme",
+  "name": "My Custom Theme",
+  "description": "A short description of this palette.",
+  "swatches": ["#101820", "#84dcc6", "#f2b880", "#f4f1de"],
+  "variables": {
+    "--ink": "#f4f1de",
+    "--muted": "#a7b0a1",
+    "--panel": "#17232d",
+    "--line": "rgba(225, 241, 232, 0.16)",
+    "--lime": "#84dcc6",
+    "--orange": "#f2b880",
+    "--app-bg": "#101820",
+    "--nav-bg": "rgba(16, 24, 32, 0.95)",
+    "--card-bg": "rgba(28, 43, 52, 0.94)",
+    "--card-hover": "#263d48",
+    "--field-bg": "#172630",
+    "--surface": "#1c2b34",
+    "--strong": "#fffdf4",
+    "--accent-contrast": "#10241f",
+    "--accent-soft": "rgba(132, 220, 198, 0.13)",
+    "--accent-border": "rgba(132, 220, 198, 0.4)",
+    "--grid-line": "rgba(132, 220, 198, 0.05)",
+    "--canvas-bg": "#f5f5ec",
+    "--canvas-line": "rgba(16, 48, 54, 0.08)"
+  }
+}

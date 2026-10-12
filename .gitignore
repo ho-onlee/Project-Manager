@@ -1,0 +1,35 @@
+# Python virtual environments and installed packages
+.env/
+.venv/
+venv/
+ENV/
+
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local Django database and generated files
+db.sqlite3
+staticfiles/
+
+# Node packages and generated frontend output
+node_modules/
+Frontend/dist/
+Frontend/.vite/
+Frontend/coverage/
+
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://projectnote.local/schemas/color_scheme.schema.json",
+  "title": "ProjectNote Color Scheme",
+  "description": "One importable ProjectNote color scheme. Colors accept hex, rgb(), rgba(), hsl(), or hsla() values. CSS variables are allow-listed by the app.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "swatches", "variables"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 64},
+    "name": {"type": "string", "minLength": 1, "maxLength": 48},
+    "description": {"type": "string", "maxLength": 120},
+    "swatches": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/color"}
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "--ink", "--muted", "--panel", "--line", "--lime", "--orange",
+        "--app-bg", "--nav-bg", "--card-bg", "--card-hover", "--field-bg",
+        "--surface", "--strong", "--accent-contrast", "--accent-soft",
+        "--accent-border", "--grid-line", "--canvas-bg", "--canvas-line"
+      ],
+      "properties": {
+        "--ink": {"$ref": "#/$defs/color"},
+        "--muted": {"$ref": "#/$defs/color"},
+        "--panel": {"$ref": "#/$defs/color"},
+        "--line": {"$ref": "#/$defs/color"},
+        "--lime": {"$ref": "#/$defs/color"},
+        "--orange": {"$ref": "#/$defs/color"},
+        "--app-bg": {"$ref": "#/$defs/color"},
+        "--nav-bg": {"$ref": "#/$defs/color"},
+        "--card-bg": {"$ref": "#/$defs/color"},
+        "--card-hover": {"$ref": "#/$defs/color"},
+        "--field-bg": {"$ref": "#/$defs/color"},
+        "--surface": {"$ref": "#/$defs/color"},
+        "--strong": {"$ref": "#/$defs/color"},
+        "--accent-contrast": {"$ref": "#/$defs/color"},
+        "--accent-soft": {"$ref": "#/$defs/color"},
+        "--accent-border": {"$ref": "#/$defs/color"},
+        "--grid-line": {"$ref": "#/$defs/color"},
+        "--canvas-bg": {"$ref": "#/$defs/color"},
+        "--canvas-line": {"$ref": "#/$defs/color"}
+      }
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^(#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|rgba?\\([^;{}]+\\)|hsla?\\([^;{}]+\\))$"
+    }
+  }
+}
