@@ -151,4 +151,4 @@ The checked-in non-Docker Django defaults are for local development: SQLite, an 
 
 
 ## If you like this project...
-Consider buying me a cup of ![coffee](https://ko-fi.com/hoon_lee)
+Consider buying me a cup of [coffee](https://ko-fi.com/hoon_lee) 
