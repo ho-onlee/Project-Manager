@@ -2,6 +2,8 @@
 from django.db import models
 from django.conf import settings
 import uuid
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 
 class Workspace(models.Model):
@@ -71,6 +73,21 @@ class WorkspaceGeminiCredential(models.Model):
 
     def __str__(self):
         return f'Gemini credential for {self.workspace}'
+
+
+class WorkspaceCardAssignment(models.Model):
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='card_assignments')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='card_assignments')
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.UUIDField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['workspace', 'user', 'content_type', 'object_id'], name='unique_workspace_card_assignment')]
+
+    def __str__(self):
+        return f'{self.user} assigned to {self.content_object} in {self.workspace}'
 
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

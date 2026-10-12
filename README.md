@@ -7,9 +7,9 @@ ProjectNote is a multi-user visual workspace for organizing projects, mapping st
 - **Projects:** Build a visual project diagram from nested nodes such as steps, text, lists, and images. Arrange and connect nodes, then export project data as JSON.
 - **Project groups:** Bring several projects together on a larger canvas. Add project cards, text annotations, and shapes; move items; and connect items with directional, loose, dependency, or bidirectional edges.
 - **Catalogs:** Keep reusable tools, skills, and environments available while working on projects.
-- **Reports:** Generate a Markdown project report with Google Gemini.
+- **Reports:** Generate a Markdown project report with Google Gemini. Titled project images are sent with the report request; Gemini chooses where they best support the text, and the generated report embeds them in those locations.
 - **Settings:** Choose a color scheme, adjust accessibility preferences, configure Gemini, customize the report prompt, and review report data before sending it.
-- **Accounts and teams:** Sign in with verified email/password or Google. Request team access during registration; a team admin approves it. Team admins can add existing accounts without email invitations. Switch workspaces from the navigation. Shared cards remain live and editable by active team members.
+- **Accounts and teams:** Sign in with verified email/password or Google. Request team access during registration; a team admin approves it. Team admins can add existing accounts without email invitations, assign active members to Projects, Tools, and Skills in Settings → User manager, and switch workspaces from the navigation. Shared cards remain live and editable by active team members.
 - **Card sharing:** Share projects, project groups, tools, skills, and environments with teams you belong to. Sharing a project group also shares the projects placed on its canvas; sharing a tool shares its linked skills.
 - **Gemini keys:** Save separate personal and team keys. Team owners/admins manage the team key; members may select and use it for report generation.
 
@@ -126,7 +126,7 @@ Password sign-up sends a signed verification link, and the account must be verif
 3. Enter a Google AI Studio API key and save it. ProjectNote tests the saved key and shows its verification status.
 4. Open a project and choose **Generate report**.
 
-On Windows, personal and team keys are stored as separate workspace-scoped entries in Windows Credential Manager and are never returned to the browser. Select the key workspace in **Settings → Google Gemini**. Team owners/admins manage the team key; active members can use it for report generation. For a server deployment, `GEMINI_API_KEY` is a personal-workspace fallback; team keys use the server account's OS credential store. `GEMINI_MODEL` can optionally select another supported model; the default is configured in `Backend/settings.py`.
+On Windows, personal and team keys are stored as separate workspace-scoped entries in Windows Credential Manager and are never returned to the browser. Select the key workspace in **Settings → Google Gemini**. Team owners/admins manage the team key; active members can use it for report generation. Reports support up to 8 embedded PNG, JPEG, or WebP images, with a maximum of 4 MB each and 12 MB total. For a server deployment, `GEMINI_API_KEY` is a personal-workspace fallback; team keys use the server account's OS credential store. `GEMINI_MODEL` can optionally select another supported model; the default is configured in `Backend/settings.py`.
 
 See [GEMINI_SETUP.md](GEMINI_SETUP.md) for additional key setup details. Never commit API keys or add them to frontend code.
 

@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AuthSessionView, ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, CsrfTokenView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, GoogleSignInView, LoginView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, PublicTeamListView, RegisterView, SkillViewSet, ToolViewSet, UserPreferencesView, VerifyEmailView, WorkspaceListView, WorkspaceMembersView, WorkspaceUsersView
+from .views import AuthSessionView, ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, CsrfTokenView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, GoogleSignInView, LoginView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, PublicTeamListView, RegisterView, SkillViewSet, ToolViewSet, UserPreferencesView, VerifyEmailView, WorkspaceCardAssignmentsView, WorkspaceDetailView, WorkspaceListView, WorkspaceMembersView, WorkspaceUsersView
 
 # The router automatically generates standard REST URLs
 router = DefaultRouter()
@@ -26,8 +26,10 @@ urlpatterns = [
     path('auth/teams/', PublicTeamListView.as_view(), name='auth-teams'),
     path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),
     path('workspaces/', WorkspaceListView.as_view(), name='workspace-list'),
+    path('workspaces/<uuid:workspace_id>/', WorkspaceDetailView.as_view(), name='workspace-detail'),
     path('workspaces/<uuid:workspace_id>/users/', WorkspaceUsersView.as_view(), name='workspace-users'),
     path('workspaces/<uuid:workspace_id>/members/', WorkspaceMembersView.as_view(), name='workspace-members'),
+    path('workspaces/<uuid:workspace_id>/assignments/<str:card_type>/<uuid:card_id>/', WorkspaceCardAssignmentsView.as_view(), name='workspace-card-assignments'),
     path('color-schemes/schema/', ColorSchemeSchemaView.as_view(), name='color-scheme-schema'),
     path('color-schemes/template/', ColorSchemeTemplateView.as_view(), name='color-scheme-template'),
     path('color-schemes/', ColorSchemesView.as_view(), name='color-schemes'),

@@ -8,7 +8,7 @@ import { addCustomColorScheme, getInitialColorSchemeState, loadColorSchemes, sav
 import './App.css';
 
 function App() {
-  const [activeView, setActiveView] = useState('projects');
+  const [activeView, setActiveView] = useState('dashboard');
   const [navOpen, setNavOpen] = useState(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -106,6 +106,8 @@ function App() {
   const changeWorkspace = workspaceId => {
     window.localStorage.setItem('projectnote-active-workspace', workspaceId);
     setActiveWorkspaceId(workspaceId);
+    const nextWorkspace = session?.workspaces?.find(workspace => workspace.id === workspaceId);
+    if (activeView === 'users' && nextWorkspace?.type !== 'team') setActiveView('projects');
   };
 
   const refreshSession = useCallback(async () => {
@@ -120,7 +122,7 @@ function App() {
     window.localStorage.removeItem('projectnote-gemini-workspace');
     setSession(null);
     setActiveWorkspaceId(null);
-    setActiveView('projects');
+    setActiveView('dashboard');
   };
 
   const selectedScheme = colorSchemeState.schemes.find(scheme => scheme.id === colorSchemeState.selectedSchemeId)
@@ -191,6 +193,7 @@ function App() {
       <AppView
         key={`${activeView}:${activeWorkspaceId || ''}`}
         activeView={activeView}
+        onNavigate={navigate}
         session={session}
         activeWorkspaceId={activeWorkspaceId}
         onSessionUpdated={refreshSession}

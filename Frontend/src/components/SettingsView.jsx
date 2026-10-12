@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
 import { DEFAULT_REPORT_PROMPT, REPORT_PROMPT_STORAGE_KEY, readReportPrompt } from '../reportPrompt';
 import { readReviewReportData, saveReviewReportData } from '../accessibilitySettings';
-import TeamManagementPanel from './TeamManagementPanel';
 
 export default function SettingsView({ session, activeWorkspaceId, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
   const [apiKey, setApiKey] = useState('');
@@ -274,7 +273,6 @@ export default function SettingsView({ session, activeWorkspaceId, onSessionUpda
           <input type="checkbox" checked={reviewReportData} onChange={event => { setReviewReportData(event.target.checked); saveReviewReportData(event.target.checked); onUpdateUserPreferences({ reviewReportData: event.target.checked }); }} />
         </label>
       </section>
-      <TeamManagementPanel session={session} activeWorkspaceId={activeWorkspaceId} onSessionUpdated={onSessionUpdated} />
       <section className="settings-panel" aria-labelledby="gemini-settings-title">
         <div className="settings-panel-heading">
           <div><span className="eyebrow">Report generation</span><h2 id="gemini-settings-title">Google Gemini</h2></div>

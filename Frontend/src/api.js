@@ -31,10 +31,13 @@ export const fetchWorkspacesAPI = () => API.get('/workspaces/');
 export const fetchUserPreferencesAPI = () => API.get('/preferences/');
 export const updateUserPreferencesAPI = preferences => API.patch('/preferences/', preferences);
 export const createWorkspaceAPI = name => API.post('/workspaces/', { name });
+export const deleteWorkspaceAPI = workspaceId => API.delete(`/workspaces/${workspaceId}/`);
 export const fetchWorkspaceUsersAPI = (workspaceId, query = '') => API.get(`/workspaces/${workspaceId}/users/`, { params: { q: query } });
 export const fetchWorkspaceMembersAPI = workspaceId => API.get(`/workspaces/${workspaceId}/members/`);
 export const addWorkspaceMemberAPI = (workspaceId, userId) => API.post(`/workspaces/${workspaceId}/members/`, { userId });
 export const removeWorkspaceMemberAPI = (workspaceId, userId) => API.delete(`/workspaces/${workspaceId}/members/`, { params: { userId } });
+export const fetchWorkspaceCardAssignmentsAPI = (workspaceId, cardType, cardId) => API.get(`/workspaces/${workspaceId}/assignments/${cardType}/${cardId}/`);
+export const updateWorkspaceCardAssignmentsAPI = (workspaceId, cardType, cardId, userIds) => API.put(`/workspaces/${workspaceId}/assignments/${cardType}/${cardId}/`, { userIds });
 
 export const fetchColorSchemesAPI = () => API.get('/color-schemes/');
 export const fetchColorSchemeSchemaAPI = () => API.get('/color-schemes/schema/');

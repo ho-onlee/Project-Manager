@@ -6,12 +6,13 @@ import ProjectModal from './ProjectModal';
 import ProjectDiagram from './ProjectDiagram';
 import ProjectReportReader from './ProjectReportReader';
 import ReportDataPreview from './ReportDataPreview';
+import ProjectAssigneePicker from './ProjectAssigneePicker';
 import CatalogSearch from './CatalogSearch';
 import { readReportPrompt } from '../reportPrompt';
 import { readReviewReportData } from '../accessibilitySettings';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
 
-export default function ProjectsView({ teams = [], activeWorkspaceId }) {
+export default function ProjectsView({ teams = [], activeWorkspaceId, canManageAssignments = false }) {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
   const [activeReport, setActiveReport] = useState(null);
@@ -79,14 +80,26 @@ export default function ProjectsView({ teams = [], activeWorkspaceId }) {
   };
 
   const projectToReportJSON = project => {
-    const projectJson = projectToJSON(project);
-    const omitImageData = node => {
-      const reportNode = { ...node, children: (node.children || []).map(omitImageData) };
-      delete reportNode.image_url;
-      return reportNode;
-    };
-    return { ...projectJson, nodes: projectJson.nodes.map(omitImageData) };
+    return projectToJSON(project);
   };
+
+  const reportImages = projectJson => {
+    const images = [];
+    const visit = nodes => (nodes || []).forEach(node => {
+      if (node.type === 'image' && node.image_url?.startsWith('data:image/')) {
+        images.push({ id: String(node.id), title: node.title || 'Project image', imageUrl: node.image_url });
+      }
+      visit(node.children);
+    });
+    visit(projectJson.nodes);
+    return images;
+  };
+
+  const placeReportImages = (markdown, projectJson) => reportImages(projectJson).reduce((report, image) => {
+    const marker = `[[PROJECT_IMAGE:${image.id}]]`;
+    const safeTitle = image.title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]');
+    return report.split(marker).join(`![${safeTitle}](${image.imageUrl})\n\n*${safeTitle}*`);
+  }, markdown);
 
   const downloadProject = (event, project) => {
     event.stopPropagation();
@@ -105,7 +118,7 @@ export default function ProjectsView({ teams = [], activeWorkspaceId }) {
     setError('');
     try {
       const response = await generateProjectReportAPI(project.id, payload.project_json, payload.prompt);
-      setActiveReport({ projectTitle: project.title, markdown: response.data.report });
+      setActiveReport({ projectTitle: project.title, markdown: placeReportImages(response.data.report, payload.project_json) });
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Report generation failed. Check Settings and try again.');
     } finally {
@@ -149,6 +162,7 @@ export default function ProjectsView({ teams = [], activeWorkspaceId }) {
             <div className="project-card-actions">
               <button className="project-action-button" type="button" aria-label={`Download ${project.title} JSON`} title="Download project JSON" onClick={event => downloadProject(event, project)}>↓ Download JSON</button>
               <button className="project-action-button generate-report-button" type="button" disabled={generatingReportId === project.id} onClick={event => generateReport(event, project)}>{generatingReportId === project.id ? 'Generating…' : '✧ Generate report'}</button>
+              {canManageAssignments && <ProjectAssigneePicker project={project} workspaceId={activeWorkspaceId} />}
             </div>
           </article>
         ))}

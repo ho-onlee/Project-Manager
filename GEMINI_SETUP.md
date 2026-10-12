@@ -13,4 +13,4 @@ The saved key is stored in the current Windows user's Credential Manager under a
 
 For server deployments, `GEMINI_API_KEY` may be provided as a personal-workspace fallback environment variable. Team keys are stored in the server account's OS credential store under workspace-specific entries. To choose another supported model, set the optional `GEMINI_MODEL` environment variable. The default is `gemini-3.5-flash-lite`.
 
-From the project library, choose **Generate report** beside **Download JSON**. ProjectNote sends that same project JSON to Gemini using the key from the selected Gemini workspace and displays the returned report as Markdown.
+From the project library, choose **Generate report** beside **Download JSON**. ProjectNote sends that same project JSON and its titled, embedded pictures to Gemini using the key from the selected Gemini workspace. Gemini chooses where each picture best supports the report and the reader embeds the pictures at those placements. Up to 8 PNG, JPEG, or WebP pictures are supported, each up to 4 MB (12 MB total per report).

@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+
+const transformReportUrl = (url, key) => {
+  if (key === 'src' && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/.test(url)) return url;
+  return defaultUrlTransform(url);
+};
 
 function reportFileName(projectTitle) {
   const name = projectTitle.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -44,7 +49,7 @@ export default function ProjectReportReader({ projectTitle, markdown, onBack }) 
       <article className="report-document">
         <p className="eyebrow">Generated project report</p>
         <h1>{projectTitle}</h1>
-        <div className="report-markdown"><ReactMarkdown>{markdown}</ReactMarkdown></div>
+        <div className="report-markdown"><ReactMarkdown urlTransform={transformReportUrl}>{markdown}</ReactMarkdown></div>
       </article>
     </section>
   );

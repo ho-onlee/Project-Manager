@@ -1,4 +1,5 @@
 from django.urls import reverse
+import base64
 import json
 from unittest.mock import patch
 
@@ -9,8 +10,8 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase as DRFAPITestCase
 
-from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, generate_project_report, test_gemini_api_key
-from .models import AccountProfile, Project, ProjectGroup, ProjectGroupItem, ProjectNode, Skill, Tool, Workspace, WorkspaceMembership
+from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, generate_project_report, project_report_fingerprint, test_gemini_api_key
+from .models import AccountProfile, Project, ProjectGroup, ProjectGroupItem, ProjectNode, Skill, Tool, Workspace, WorkspaceCardAssignment, WorkspaceMembership
 
 
 class APITestCase(DRFAPITestCase):
@@ -348,6 +349,68 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 		response = self.client.get(reverse('workspace-members', args=[team.id]))
 		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+	@patch('api.views.delete_gemini_api_key')
+	def test_team_owner_can_delete_team_owned_data_and_shared_access(self, delete_gemini_key):
+		team = Workspace.objects.create(name='Disposable team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		owned_project = Project.objects.create(workspace=team, title='Team-owned project')
+		personal_project = Project.objects.create(workspace=self.workspace, title='Personal project')
+		personal_project.shared_with.add(team)
+
+		response = self.client.delete(reverse('workspace-detail', args=[team.id]))
+
+		self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+		self.assertFalse(Workspace.objects.filter(id=team.id).exists())
+		self.assertFalse(Project.objects.filter(id=owned_project.id).exists())
+		personal_project.refresh_from_db()
+		self.assertFalse(personal_project.shared_with.exists())
+		delete_gemini_key.assert_called_once_with(workspace_id=team.id)
+
+	@patch('api.views.delete_gemini_api_key')
+	def test_team_member_cannot_delete_team(self, delete_gemini_key):
+		team = Workspace.objects.create(name='Protected team', workspace_type=Workspace.TEAM, created_by=self.user)
+		member = get_user_model().objects.create_user(username='delete-member', email='delete-member@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		self.client.force_authenticate(user=member)
+
+		response = self.client.delete(reverse('workspace-detail', args=[team.id]))
+
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+		self.assertTrue(Workspace.objects.filter(id=team.id).exists())
+		delete_gemini_key.assert_not_called()
+
+	def test_team_admin_can_assign_active_members_to_visible_project(self):
+		team = Workspace.objects.create(name='Assignment team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		project = Project.objects.create(workspace=self.workspace, title='Shared live project')
+		project.shared_with.add(team)
+		member = get_user_model().objects.create_user(username='assignee', email='assignee@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		url = reverse('workspace-card-assignments', args=[team.id, 'projects', project.id])
+
+		response = self.client.put(url, {'userIds': [str(member.id)]}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['userIds'], [str(member.id)])
+		self.assertTrue(WorkspaceCardAssignment.objects.filter(workspace=team, user=member, object_id=project.id).exists())
+
+	def test_only_team_admins_can_assign_and_assignees_must_be_active_members(self):
+		team = Workspace.objects.create(name='Restricted assignment team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		project = Project.objects.create(workspace=self.workspace, title='Shared project')
+		project.shared_with.add(team)
+		outside_user = get_user_model().objects.create_user(username='outside', email='outside@example.com', password='Test-password-8492!')
+		url = reverse('workspace-card-assignments', args=[team.id, 'projects', project.id])
+
+		invalid_assignment = self.client.put(url, {'userIds': [str(outside_user.id)]}, format='json')
+		self.assertEqual(invalid_assignment.status_code, status.HTTP_400_BAD_REQUEST)
+
+		member = get_user_model().objects.create_user(username='member', email='member@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		self.client.force_authenticate(user=member)
+		forbidden_assignment = self.client.put(url, {'userIds': [str(member.id)]}, format='json')
+		self.assertEqual(forbidden_assignment.status_code, status.HTTP_403_FORBIDDEN)
+
 	def test_email_login_returns_the_personal_workspace(self):
 		user = get_user_model().objects.create_user(username='sign-in@example.com', email='sign-in@example.com', password='M0re-Secure!Account-954')
 		AccountProfile.objects.create(user=user, email_verified=True)
@@ -547,26 +610,45 @@ class GeminiClientTests(SimpleTestCase):
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.urllib.request.urlopen')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
-	def test_generate_project_report_omits_image_data_from_prompt(self, get_api_key, urlopen):
+	def test_generate_project_report_sends_titled_images_for_contextual_placement(self, get_api_key, urlopen):
 		urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
-			'candidates': [{'content': {'parts': [{'text': '# Report'}]}}],
+			'candidates': [{'content': {'parts': [{'text': '# Report\n\n[[PROJECT_IMAGE:image-1]]'}]}}],
 		}).encode()
+		image_data = base64.b64encode(b'fake-png-bytes').decode()
 		project_json = {
 			'project': {'title': 'Image project'},
 			'nodes': [{
-				'title': 'Photo',
-				'content': 'Image caption',
-				'image_url': 'data:image/png;base64,' + ('A' * 200_000),
+				'id': 'image-1',
+				'type': 'image',
+				'title': 'Coastal erosion after storm',
+				'description': 'North shore comparison photo',
+				'image_url': f'data:image/png;base64,{image_data}',
 			}],
 			'relationships': [],
 		}
 
-		generate_project_report(project_json)
+		report = generate_project_report(project_json)
 
-		prompt = json.loads(urlopen.call_args.args[0].data)['contents'][0]['parts'][0]['text']
-		self.assertIn('Image caption', prompt)
-		self.assertNotIn('image_url', prompt)
-		self.assertNotIn('data:image/png;base64', prompt)
+		parts = json.loads(urlopen.call_args.args[0].data)['contents'][0]['parts']
+		prompt = parts[0]['text']
+		self.assertIn('Coastal erosion after storm', prompt)
+		self.assertIn('[[PROJECT_IMAGE:image-1]]', prompt)
+		self.assertEqual(parts[2]['inlineData']['mimeType'], 'image/png')
+		self.assertEqual(parts[2]['inlineData']['data'], image_data)
+		self.assertIn('[[PROJECT_IMAGE:image-1]]', report)
+
+	@override_settings(GEMINI_API_KEY='test-key')
+	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
+	@patch('api.gemini.urllib.request.urlopen')
+	def test_generate_project_report_rejects_unsupported_image_url(self, urlopen, get_api_key):
+		with self.assertRaises(GeminiInputTooLargeError):
+			generate_project_report({'nodes': [{'type': 'image', 'title': 'Remote image', 'image_url': 'https://example.test/photo.png'}]})
+		urlopen.assert_not_called()
+
+	def test_report_cache_fingerprint_changes_when_picture_changes(self):
+		first = {'project': {'title': 'Photo report'}, 'nodes': [{'id': 'image-1', 'type': 'image', 'title': 'Site A', 'image_url': 'data:image/png;base64,AAAA'}], 'relationships': []}
+		second = {**first, 'nodes': [{**first['nodes'][0], 'image_url': 'data:image/png;base64,BBBB'}]}
+		self.assertNotEqual(project_report_fingerprint(first, ''), project_report_fingerprint(second, ''))
 
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')

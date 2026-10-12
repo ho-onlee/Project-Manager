@@ -3,13 +3,14 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout, password_validation
+from django.contrib.contenttypes.models import ContentType
 from django.core import signing
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import status, viewsets
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import PermissionDenied
@@ -18,7 +19,7 @@ from rest_framework.views import APIView
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
-from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceGeminiCredential
+from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceCardAssignment, WorkspaceGeminiCredential
 from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, generate_project_report, get_gemini_api_key, get_gemini_key_source, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
 from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
 from .models import Workspace, WorkspaceMembership
@@ -301,6 +302,27 @@ class WorkspaceListView(APIView):
         return Response({'id': str(team.id), 'name': team.name, 'type': team.workspace_type, 'role': WorkspaceMembership.OWNER, 'status': WorkspaceMembership.ACTIVE}, status=status.HTTP_201_CREATED)
 
 
+class WorkspaceDetailView(APIView):
+    def delete(self, request, workspace_id):
+        workspace = Workspace.objects.filter(id=workspace_id, workspace_type=Workspace.TEAM).first()
+        if workspace is None:
+            return Response({'detail': 'Team not found.'}, status=status.HTTP_404_NOT_FOUND)
+        is_owner = WorkspaceMembership.objects.filter(
+            workspace=workspace,
+            user=request.user,
+            status=WorkspaceMembership.ACTIVE,
+            role=WorkspaceMembership.OWNER,
+        ).exists()
+        if not is_owner and not request.user.is_staff:
+            return Response({'detail': 'Only the team owner or a ProjectNote administrator can delete this team.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            delete_gemini_api_key(workspace_id=workspace.id)
+        except GeminiConfigurationError as error:
+            return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        workspace.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 def get_manageable_team(request, workspace_id):
     workspace = Workspace.objects.filter(id=workspace_id, workspace_type=Workspace.TEAM).first()
     if workspace is None:
@@ -370,6 +392,65 @@ class WorkspaceMembersView(APIView):
             return Response({'detail': 'Transfer team ownership before removing the owner.'}, status=status.HTTP_400_BAD_REQUEST)
         membership.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkspaceCardAssignmentsView(APIView):
+    CARD_MODELS = {'projects': Project, 'tools': Tool, 'skills': Skill}
+
+    def _get_card_context(self, request, workspace_id, card_type, card_id):
+        workspace = get_manageable_team(request, workspace_id)
+        if workspace is None:
+            return None, None, None
+        model = self.CARD_MODELS.get(card_type)
+        if model is None:
+            return workspace, None, None
+        card = model.objects.filter(pk=card_id).filter(Q(workspace=workspace) | Q(shared_with=workspace)).first()
+        return workspace, model, card
+
+    def get(self, request, workspace_id, card_type, card_id):
+        workspace, model, card = self._get_card_context(request, workspace_id, card_type, card_id)
+        if workspace is None:
+            return Response({'detail': 'Only team owners/admins can manage assignments.'}, status=status.HTTP_403_FORBIDDEN)
+        if model is None:
+            return Response({'detail': 'Assignments are supported for projects, tools, and skills.'}, status=status.HTTP_400_BAD_REQUEST)
+        if card is None:
+            return Response({'detail': 'Card not found in this team workspace.'}, status=status.HTTP_404_NOT_FOUND)
+        content_type = ContentType.objects.get_for_model(model)
+        assignments = WorkspaceCardAssignment.objects.filter(workspace=workspace, content_type=content_type, object_id=card.pk).select_related('user')
+        assigned_ids = {str(item.user_id) for item in assignments}
+        return Response({
+            'userIds': sorted(assigned_ids),
+            'members': [{
+                'id': str(member.user_id),
+                'email': member.user.email,
+                'name': member.user.get_full_name() or member.user.email,
+                'assigned': str(member.user_id) in assigned_ids,
+            } for member in WorkspaceMembership.objects.filter(workspace=workspace, status=WorkspaceMembership.ACTIVE).select_related('user').order_by('user__email')],
+        })
+
+    @transaction.atomic
+    def put(self, request, workspace_id, card_type, card_id):
+        workspace, model, card = self._get_card_context(request, workspace_id, card_type, card_id)
+        if workspace is None:
+            return Response({'detail': 'Only team owners/admins can manage assignments.'}, status=status.HTTP_403_FORBIDDEN)
+        if model is None:
+            return Response({'detail': 'Assignments are supported for projects, tools, and skills.'}, status=status.HTTP_400_BAD_REQUEST)
+        if card is None:
+            return Response({'detail': 'Card not found in this team workspace.'}, status=status.HTTP_404_NOT_FOUND)
+        user_ids = request.data.get('userIds')
+        if not isinstance(user_ids, list):
+            return Response({'userIds': ['Send a list of active team-member IDs.']}, status=status.HTTP_400_BAD_REQUEST)
+        active_ids = set(WorkspaceMembership.objects.filter(workspace=workspace, status=WorkspaceMembership.ACTIVE, user_id__in=user_ids).values_list('user_id', flat=True))
+        normalized_ids = {str(user_id) for user_id in active_ids}
+        if len(normalized_ids) != len(set(map(str, user_ids))):
+            return Response({'userIds': ['Assignments can only be made to active members of this team.']}, status=status.HTTP_400_BAD_REQUEST)
+        content_type = ContentType.objects.get_for_model(model)
+        WorkspaceCardAssignment.objects.filter(workspace=workspace, content_type=content_type, object_id=card.pk).delete()
+        WorkspaceCardAssignment.objects.bulk_create([
+            WorkspaceCardAssignment(workspace=workspace, content_type=content_type, object_id=card.pk, user_id=user_id)
+            for user_id in active_ids
+        ])
+        return self.get(request, workspace_id, card_type, card_id)
 
 
 class ProjectViewSet(WorkspaceScopedViewSet):
