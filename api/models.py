@@ -1,9 +1,81 @@
 
 from django.db import models
+from django.conf import settings
 import uuid
+
+
+class Workspace(models.Model):
+    PERSONAL = 'personal'
+    TEAM = 'team'
+    TYPES = [(PERSONAL, 'Personal'), (TEAM, 'Team')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=150)
+    workspace_type = models.CharField(max_length=12, choices=TYPES)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_workspaces')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class WorkspaceMembership(models.Model):
+    OWNER = 'owner'
+    ADMIN = 'admin'
+    MEMBER = 'member'
+    ROLES = [(OWNER, 'Owner'), (ADMIN, 'Admin'), (MEMBER, 'Member')]
+    ACTIVE = 'active'
+    PENDING = 'pending'
+    STATUSES = [(ACTIVE, 'Active'), (PENDING, 'Pending')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='memberships')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='workspace_memberships')
+    role = models.CharField(max_length=12, choices=ROLES, default=MEMBER)
+    status = models.CharField(max_length=12, choices=STATUSES, default=ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['workspace', 'user'], name='unique_workspace_membership')]
+
+    def __str__(self):
+        return f'{self.user} in {self.workspace}'
+
+
+class UserPreferences(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='projectnote_preferences')
+    gemini_workspace = models.ForeignKey(Workspace, null=True, blank=True, on_delete=models.SET_NULL, related_name='gemini_key_preference_users')
+    selected_color_scheme_id = models.CharField(max_length=80, default='moss')
+    accessibility = models.JSONField(default=dict, blank=True)
+    report_prompt = models.TextField(blank=True, default='')
+    review_report_data = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f'Preferences for {self.user}'
+
+
+class AccountProfile(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='projectnote_profile')
+    email_verified = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f'Account profile for {self.user}'
+
+
+class WorkspaceGeminiCredential(models.Model):
+    workspace = models.OneToOneField(Workspace, primary_key=True, on_delete=models.CASCADE, related_name='gemini_credential')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Gemini credential for {self.workspace}'
 
 class Project(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='projects')
+    shared_with = models.ManyToManyField(Workspace, blank=True, related_name='shared_projects')
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -61,6 +133,8 @@ class ProjectRelationship(models.Model):
 
 class ProjectGroup(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='project_groups')
+    shared_with = models.ManyToManyField(Workspace, blank=True, related_name='shared_project_groups')
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -137,6 +211,7 @@ class ProjectGroupRelationship(models.Model):
 
 class Node(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='legacy_nodes')
     
     # --- Make sure these three fields exist! ---
     type = models.CharField(max_length=10, default='NOT') 
@@ -165,6 +240,8 @@ class Edge(models.Model):
 
 class Skill(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='skills')
+    shared_with = models.ManyToManyField(Workspace, blank=True, related_name='shared_skills')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
 
@@ -174,6 +251,8 @@ class Skill(models.Model):
 
 class Tool(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='tools')
+    shared_with = models.ManyToManyField(Workspace, blank=True, related_name='shared_tools')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     features = models.JSONField(default=list, blank=True)
@@ -185,6 +264,8 @@ class Tool(models.Model):
 
 class Environment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='environments')
+    shared_with = models.ManyToManyField(Workspace, blank=True, related_name='shared_environments')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
 

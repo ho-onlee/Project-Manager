@@ -2,3 +2,7 @@ Django>=6.1,<7
 djangorestframework>=3.18,<4
 django-cors-headers>=4.9,<5
 keyring>=25,<27
+google-auth>=2.0,<3
+gunicorn>=23,<24
+psycopg[binary]>=3.2,<4
+whitenoise>=6.9,<7

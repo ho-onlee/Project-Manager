@@ -2,21 +2,32 @@ from django.urls import reverse
 import json
 from unittest.mock import patch
 
+from django.core import signing
 from django.core.cache import cache
+from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, override_settings
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase as DRFAPITestCase
 
 from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, generate_project_report, test_gemini_api_key
-from .models import Project, ProjectGroup, ProjectGroupItem, ProjectNode, Skill, Tool
+from .models import AccountProfile, Project, ProjectGroup, ProjectGroupItem, ProjectNode, Skill, Tool, Workspace, WorkspaceMembership
+
+
+class APITestCase(DRFAPITestCase):
+	def _pre_setup(self):
+		super()._pre_setup()
+		self.user = get_user_model().objects.create_user(username='test-user', email='test@example.com', password='Test-password-8492!')
+		self.workspace = Workspace.objects.create(name='Test personal', workspace_type=Workspace.PERSONAL, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=self.workspace, user=self.user, role=WorkspaceMembership.OWNER)
+		self.client.force_authenticate(user=self.user)
 
 
 class ToolSkillAPITests(APITestCase):
 	def setUp(self):
 		self.skills_url = reverse('skill-list')
 		self.tools_url = reverse('tool-list')
-		self.skill_a = Skill.objects.create(name='Interviewing', description='Asks useful questions.')
-		self.skill_b = Skill.objects.create(name='Thematic coding', description='Groups recurring ideas.')
+		self.skill_a = Skill.objects.create(workspace=self.workspace, name='Interviewing', description='Asks useful questions.')
+		self.skill_b = Skill.objects.create(workspace=self.workspace, name='Thematic coding', description='Groups recurring ideas.')
 
 	def test_tool_can_be_created_with_multiple_skills(self):
 		response = self.client.post(self.tools_url, {
@@ -37,7 +48,7 @@ class ToolSkillAPITests(APITestCase):
 		self.assertIn('skillIds', response.data)
 
 	def test_skill_cannot_be_deleted_when_it_is_a_tools_only_skill(self):
-		tool = Tool.objects.create(name='Single skill tool')
+		tool = Tool.objects.create(workspace=self.workspace, name='Single skill tool')
 		tool.skills.add(self.skill_a)
 
 		response = self.client.delete(reverse('skill-detail', args=[self.skill_a.id]))
@@ -46,7 +57,7 @@ class ToolSkillAPITests(APITestCase):
 		self.assertTrue(Skill.objects.filter(id=self.skill_a.id).exists())
 
 	def test_tool_update_replaces_skill_relationships(self):
-		tool = Tool.objects.create(name='Research tool')
+		tool = Tool.objects.create(workspace=self.workspace, name='Research tool')
 		tool.skills.add(self.skill_a, self.skill_b)
 
 		response = self.client.patch(reverse('tool-detail', args=[tool.id]), {
@@ -59,7 +70,7 @@ class ToolSkillAPITests(APITestCase):
 
 class ProjectReportGenerationTests(APITestCase):
 	def setUp(self):
-		self.project = Project.objects.create(title='Recipe planner', description='Plan weekly meals.')
+		self.project = Project.objects.create(workspace=self.workspace, title='Recipe planner', description='Plan weekly meals.')
 		self.node = ProjectNode.objects.create(project=self.project, title='Collect recipes', node_type='step')
 		self.url = reverse('project-generate-report', args=[self.project.id])
 		self.project_json = {
@@ -119,7 +130,7 @@ class ProjectReportGenerationTests(APITestCase):
 
 class ProjectNodeOrderingTests(APITestCase):
 	def setUp(self):
-		self.project = Project.objects.create(title='Ordered flow')
+		self.project = Project.objects.create(workspace=self.workspace, title='Ordered flow')
 		self.root = ProjectNode.objects.create(project=self.project, title='Ordered flow', node_type='project', is_project_root=True, order=0)
 		self.first_node = ProjectNode.objects.create(project=self.project, title='First', order=1)
 		self.second_node = ProjectNode.objects.create(project=self.project, title='Second', order=2)
@@ -145,8 +156,8 @@ class ProjectNodeOrderingTests(APITestCase):
 
 class ProjectGroupAPITests(APITestCase):
 	def setUp(self):
-		self.project = Project.objects.create(title='Field survey', description='Collect observations.')
-		self.group = ProjectGroup.objects.create(title='Research program', description='Projects for the field study.')
+		self.project = Project.objects.create(workspace=self.workspace, title='Field survey', description='Collect observations.')
+		self.group = ProjectGroup.objects.create(workspace=self.workspace, title='Research program', description='Projects for the field study.')
 
 	def test_group_canvas_can_store_project_text_and_shape_items(self):
 		group_item_url = reverse('projectgroupitem-list')
@@ -188,7 +199,7 @@ class ProjectGroupAPITests(APITestCase):
 		item_url = reverse('projectgroupitem-list')
 		source = self.client.post(item_url, {'group': str(self.group.id), 'item_type': 'text', 'title': 'Start'}, format='json')
 		target = self.client.post(item_url, {'group': str(self.group.id), 'item_type': 'shape', 'shape_type': 'rectangle'}, format='json')
-		other_group = ProjectGroup.objects.create(title='Other group')
+		other_group = ProjectGroup.objects.create(workspace=self.workspace, title='Other group')
 		other_item = self.client.post(item_url, {'group': str(other_group.id), 'item_type': 'text'}, format='json')
 		connection_url = reverse('projectgrouprelationship-list')
 
@@ -231,7 +242,7 @@ class GeminiSettingsTests(APITestCase):
 		response = self.client.post(reverse('gemini-settings'), {'api_key': 'test-gemini-api-key-value'}, format='json')
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
-		store_key.assert_called_once_with('test-gemini-api-key-value')
+		store_key.assert_called_once_with('test-gemini-api-key-value', workspace_id=self.workspace.id)
 
 	@patch('api.views.test_gemini_api_key')
 	@patch('api.views.mark_gemini_api_key_validated')
@@ -241,8 +252,8 @@ class GeminiSettingsTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertTrue(response.data['validated'])
-		test_key.assert_called_once_with()
-		mark_validated.assert_called_once_with()
+		test_key.assert_called_once_with(workspace_id=self.workspace.id)
+		mark_validated.assert_called_once_with(workspace_id=self.workspace.id)
 
 	@patch('api.views.clear_gemini_api_key_validation')
 	@patch('api.views.test_gemini_api_key', side_effect=GeminiGenerationError('Quota exceeded.'))
@@ -250,8 +261,221 @@ class GeminiSettingsTests(APITestCase):
 		response = self.client.post(reverse('gemini-settings-test'), {}, format='json')
 
 		self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-		clear_validation.assert_called_once_with()
+		clear_validation.assert_called_once_with(workspace_id=self.workspace.id)
 
+
+class AccountAndWorkspaceTests(DRFAPITestCase):
+	def setUp(self):
+		self.user = get_user_model().objects.create_user(username='account-test', email='account-test@example.com', password='Test-password-8492!')
+		self.workspace = Workspace.objects.create(name='Account test personal', workspace_type=Workspace.PERSONAL, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=self.workspace, user=self.user, role=WorkspaceMembership.OWNER)
+		self.client.force_authenticate(user=self.user)
+
+	def test_registration_creates_personal_workspace_and_pending_team_request(self):
+		team = Workspace.objects.create(name='Research team', workspace_type=Workspace.TEAM)
+		with patch('api.views.send_mail') as send_email:
+			response = self.client.post(reverse('auth-register'), {
+				'email': 'new-user@example.com',
+				'name': 'New User',
+				'password': 'M0re-Secure!Account-954',
+				'teamId': str(team.id),
+			}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+		self.assertTrue(response.data['verificationRequired'])
+		send_email.assert_called_once()
+		membership = WorkspaceMembership.objects.get(workspace=team, user__email='new-user@example.com')
+		self.assertEqual(membership.status, WorkspaceMembership.PENDING)
+		profile = AccountProfile.objects.get(user__email='new-user@example.com')
+		self.assertFalse(profile.email_verified)
+
+	def test_email_verification_enables_password_login(self):
+		user = get_user_model().objects.create_user(username='verify@example.com', email='verify@example.com', password='M0re-Secure!Account-954')
+		AccountProfile.objects.create(user=user, email_verified=False)
+		token = signing.dumps({'user_id': str(user.id)}, salt='projectnote-email-verification')
+		verify = self.client.post(reverse('auth-verify-email'), {'token': token}, format='json')
+		login_response = self.client.post(reverse('auth-login'), {'email': user.email, 'password': 'M0re-Secure!Account-954'}, format='json')
+
+		self.assertEqual(verify.status_code, status.HTTP_200_OK)
+		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+		self.assertTrue(login_response.data['emailVerified'])
+
+	@override_settings(GOOGLE_OAUTH_CLIENT_ID='test-google-client')
+	@patch('api.views.verify_google_identity', return_value={'email': 'linked@example.com', 'email_verified': True, 'given_name': 'Linked'})
+	def test_google_verified_email_links_to_existing_account(self, verify_token):
+		user = get_user_model().objects.create_user(username='linked@example.com', email='linked@example.com', password='M0re-Secure!Account-954')
+		AccountProfile.objects.create(user=user, email_verified=False)
+		workspace = Workspace.objects.create(name='Personal', workspace_type=Workspace.PERSONAL, created_by=user)
+		WorkspaceMembership.objects.create(workspace=workspace, user=user, role=WorkspaceMembership.OWNER)
+
+		response = self.client.post(reverse('auth-google'), {'credential': 'signed-google-token'}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+		self.assertEqual(get_user_model().objects.filter(email='linked@example.com').count(), 1)
+		self.assertTrue(AccountProfile.objects.get(user=user).email_verified)
+		verify_token.assert_called_once()
+
+	@override_settings(GOOGLE_OAUTH_CLIENT_ID='test-google-client')
+	@patch('api.views.verify_google_identity', return_value={'email': 'google-team@example.com', 'email_verified': True, 'given_name': 'Google'})
+	def test_google_signup_can_request_team_membership(self, verify_token):
+		team = Workspace.objects.create(name='Google request team', workspace_type=Workspace.TEAM)
+		response = self.client.post(reverse('auth-google'), {'credential': 'signed-google-token', 'teamId': str(team.id)}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+		self.assertEqual(response.data['pendingTeams'][0]['id'], str(team.id))
+		self.assertEqual(WorkspaceMembership.objects.get(workspace=team).status, WorkspaceMembership.PENDING)
+
+	def test_team_admin_can_approve_pending_member_and_add_existing_account(self):
+		team = Workspace.objects.create(name='Approvals', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		pending_user = get_user_model().objects.create_user(username='pending', email='pending@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=pending_user, role=WorkspaceMembership.MEMBER, status=WorkspaceMembership.PENDING)
+		approve = self.client.post(reverse('workspace-members', args=[team.id]), {'userId': str(pending_user.id)}, format='json')
+		self.assertEqual(approve.status_code, status.HTTP_200_OK)
+		pending_user.refresh_from_db()
+		self.assertEqual(WorkspaceMembership.objects.get(workspace=team, user=pending_user).status, WorkspaceMembership.ACTIVE)
+
+		existing_user = get_user_model().objects.create_user(username='existing', email='existing@example.com', password='Test-password-8492!')
+		add = self.client.post(reverse('workspace-members', args=[team.id]), {'userId': str(existing_user.id)}, format='json')
+		self.assertEqual(add.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(WorkspaceMembership.objects.get(workspace=team, user=existing_user).status, WorkspaceMembership.ACTIVE)
+
+	def test_team_member_cannot_manage_members(self):
+		team = Workspace.objects.create(name='Restricted', workspace_type=Workspace.TEAM, created_by=self.user)
+		member = get_user_model().objects.create_user(username='regular-member', email='regular@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		self.client.force_authenticate(user=member)
+		response = self.client.get(reverse('workspace-members', args=[team.id]))
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_email_login_returns_the_personal_workspace(self):
+		user = get_user_model().objects.create_user(username='sign-in@example.com', email='sign-in@example.com', password='M0re-Secure!Account-954')
+		AccountProfile.objects.create(user=user, email_verified=True)
+		workspace = Workspace.objects.create(name='Personal', workspace_type=Workspace.PERSONAL, created_by=user)
+		WorkspaceMembership.objects.create(workspace=workspace, user=user, role=WorkspaceMembership.OWNER)
+
+		response = self.client.post(reverse('auth-login'), {'email': user.email, 'password': 'M0re-Secure!Account-954'}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertTrue(response.data['authenticated'])
+		self.assertEqual(response.data['workspaces'][0]['id'], str(workspace.id))
+
+	def test_private_api_requires_authentication(self):
+		self.client.force_authenticate(user=None)
+		response = self.client.get(reverse('project-list'))
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_project_list_only_returns_active_workspace_records(self):
+		user = get_user_model().objects.create_user(username='workspace-user', email='workspace-user@example.com', password='Test-password-8492!')
+		self.workspace = Workspace.objects.create(name='Personal', workspace_type=Workspace.PERSONAL, created_by=user)
+		WorkspaceMembership.objects.create(workspace=self.workspace, user=user, role=WorkspaceMembership.OWNER)
+		self.client.force_authenticate(user=user)
+		Project.objects.create(workspace=self.workspace, title='My workspace project')
+		other_workspace = Workspace.objects.create(name='Other', workspace_type=Workspace.PERSONAL)
+		Project.objects.create(workspace=other_workspace, title='Private project')
+
+		response = self.client.get(reverse('project-list'))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual([item['title'] for item in response.data], ['My workspace project'])
+
+	def test_owner_can_share_live_project_with_active_team_and_team_member_sees_it(self):
+		team = Workspace.objects.create(name='Shared team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		project = Project.objects.create(workspace=self.workspace, title='Shared project')
+		share_response = self.client.patch(reverse('project-detail', args=[project.id]), {
+			'shared_with': [str(team.id)],
+		}, format='json')
+		self.assertEqual(share_response.status_code, status.HTTP_200_OK)
+
+		member = get_user_model().objects.create_user(username='team-member', email='team-member@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		self.client.force_authenticate(user=member)
+		response = self.client.get(reverse('project-list'), HTTP_X_WORKSPACE_ID=str(team.id))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual([item['title'] for item in response.data], ['Shared project'])
+
+	def test_owner_cannot_share_card_to_unjoined_team(self):
+		team = Workspace.objects.create(name='Unjoined team', workspace_type=Workspace.TEAM)
+		project = Project.objects.create(workspace=self.workspace, title='Private project')
+		response = self.client.patch(reverse('project-detail', args=[project.id]), {
+			'shared_with': [str(team.id)],
+		}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_team_member_can_edit_shared_live_project_but_cannot_reshare_it(self):
+		team = Workspace.objects.create(name='Shared team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		project = Project.objects.create(workspace=self.workspace, title='Shared project')
+		project.shared_with.add(team)
+		member = get_user_model().objects.create_user(username='editor', email='editor@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+		self.client.force_authenticate(user=member)
+
+		edit_response = self.client.patch(reverse('project-detail', args=[project.id]), {'title': 'Edited by team'}, format='json', HTTP_X_WORKSPACE_ID=str(team.id))
+		share_response = self.client.patch(reverse('project-detail', args=[project.id]), {'shared_with': []}, format='json', HTTP_X_WORKSPACE_ID=str(team.id))
+
+		self.assertEqual(edit_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(share_response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_sharing_group_propagates_to_projects_on_its_canvas(self):
+		team = Workspace.objects.create(name='Group team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		project = Project.objects.create(workspace=self.workspace, title='Group project')
+		group = ProjectGroup.objects.create(workspace=self.workspace, title='Shared group')
+		ProjectGroupItem.objects.create(group=group, project=project, item_type=ProjectGroupItem.PROJECT)
+
+		response = self.client.patch(reverse('projectgroup-detail', args=[group.id]), {'shared_with': [str(team.id)]}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertTrue(project.shared_with.filter(id=team.id).exists())
+
+	def test_sharing_tool_propagates_to_its_skills(self):
+		team = Workspace.objects.create(name='Tool team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		skill = Skill.objects.create(workspace=self.workspace, name='Interviewing')
+		tool = Tool.objects.create(workspace=self.workspace, name='Interview kit')
+		tool.skills.add(skill)
+
+		response = self.client.patch(reverse('tool-detail', args=[tool.id]), {'shared_with': [str(team.id)]}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		skill.refresh_from_db()
+		self.assertTrue(skill.shared_with.filter(id=team.id).exists())
+
+	def test_preferences_are_saved_to_the_authenticated_user(self):
+		response = self.client.patch(reverse('user-preferences'), {
+			'selectedColorSchemeId': 'tideline',
+			'accessibility': {'textSize': 'large', 'highContrast': True, 'reduceMotion': False},
+			'reportPrompt': 'Focus on open risks.',
+			'reviewReportData': False,
+		}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['selectedColorSchemeId'], 'tideline')
+		self.assertFalse(response.data['reviewReportData'])
+		self.client.force_authenticate(user=None)
+		self.assertEqual(self.client.get(reverse('user-preferences')).status_code, status.HTTP_403_FORBIDDEN)
+
+	@patch('api.views.store_gemini_api_key')
+	def test_team_key_can_only_be_managed_by_team_admin(self, store_key):
+		team = Workspace.objects.create(name='Gemini team', workspace_type=Workspace.TEAM, created_by=self.user)
+		WorkspaceMembership.objects.create(workspace=team, user=self.user, role=WorkspaceMembership.OWNER)
+		member = get_user_model().objects.create_user(username='key-member', email='key-member@example.com', password='Test-password-8492!')
+		WorkspaceMembership.objects.create(workspace=team, user=member, role=WorkspaceMembership.MEMBER)
+
+		self.client.force_authenticate(user=member)
+		response = self.client.post(reverse('gemini-settings'), {'api_key': 'A-secure-test-gemini-key-value'}, format='json', HTTP_X_GEMINI_KEY_WORKSPACE_ID=str(team.id))
+
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+		store_key.assert_not_called()
+
+		self.client.force_authenticate(user=self.user)
+		response = self.client.post(reverse('gemini-settings'), {'api_key': 'A-secure-test-gemini-key-value'}, format='json', HTTP_X_GEMINI_KEY_WORKSPACE_ID=str(team.id))
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		store_key.assert_called_once_with('A-secure-test-gemini-key-value', workspace_id=team.id)
 
 class ColorSchemeAPITests(APITestCase):
 	def setUp(self):

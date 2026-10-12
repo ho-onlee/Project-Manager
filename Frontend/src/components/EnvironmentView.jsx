@@ -6,9 +6,9 @@ import CardVisibilityTabs from './CardVisibilityTabs';
 import CatalogSearch from './CatalogSearch';
 import useHiddenCards from './useHiddenCards';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
-import { createEnvironmentAPI, deleteEnvironmentAPI, fetchEnvironments, updateEnvironmentAPI } from '../api';
+import { createEnvironmentAPI, deleteEnvironmentAPI, fetchEnvironments, updateEnvironmentAPI, updateSharedCardAPI } from '../api';
 
-export default function EnvironmentView() {
+export default function EnvironmentView({ teams = [], activeWorkspaceId }) {
   const [environments, setEnvironments] = useState([]);
   const [modal, setModal] = useState(null);
   const [cardView, setCardView] = useState('all');
@@ -47,6 +47,13 @@ export default function EnvironmentView() {
     setModal(null);
   };
 
+  const shareEnvironment = async (environment, teamId, shouldShare) => {
+    const sharedWith = new Set((environment.shared_with || []).map(String));
+    if (shouldShare) sharedWith.add(String(teamId)); else sharedWith.delete(String(teamId));
+    const response = await updateSharedCardAPI('environments', environment.id, [...sharedWith]);
+    setEnvironments(current => current.map(item => item.id === environment.id ? response.data : item));
+  };
+
   const removeEnvironmentFromCard = async id => {
     const environment = environments.find(item => String(item.id) === String(id));
     if (!environment || !window.confirm(`Remove "${environment.name}"? This cannot be undone.`)) return;
@@ -68,7 +75,7 @@ export default function EnvironmentView() {
           <CardVisibilityTabs view={cardView} onChange={setCardView} allCount={environments.length - hiddenEnvironmentsCount} hiddenCount={hiddenEnvironmentsCount} />
         </div>
         <div className="catalog-grid">
-          {filteredEnvironments.map(environment => <EnvironmentCard id={`environments-card-${environment.id}`} key={environment.id} environment={environment} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(environment.id))} onHide={() => hideCard(environment.id)} onRestore={() => restoreCard(environment.id)} onRemove={() => removeEnvironmentFromCard(environment.id)} onEdit={setModal} />)}
+          {filteredEnvironments.map(environment => <EnvironmentCard id={`environments-card-${environment.id}`} key={environment.id} environment={environment} teams={environment.workspace === activeWorkspaceId ? teams : []} onShareChange={shareEnvironment} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(environment.id))} onHide={() => hideCard(environment.id)} onRestore={() => restoreCard(environment.id)} onRemove={() => removeEnvironmentFromCard(environment.id)} onEdit={setModal} />)}
         </div>
         {!filteredEnvironments.length && <p className="hidden-cards-empty">{query ? `No environments match "${searchQuery.trim()}".` : cardView === 'hidden' ? 'No hidden environments.' : 'No environments yet.'}</p>}
       </section>

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { createProjectGroupAPI, deleteProjectGroupAPI, fetchProjectGroupsAPI, fetchProjects } from '../api';
+import { createProjectGroupAPI, deleteProjectGroupAPI, fetchProjectGroupsAPI, fetchProjects, updateSharedCardAPI } from '../api';
 import FloatingAction from './FloatingAction';
+import CardActions from './CardActions';
 import CatalogSearch from './CatalogSearch';
 import ProjectGroupModal from './ProjectGroupModal';
 import ProjectGroupDiagram from './ProjectGroupDiagram';
 
-export default function ProjectGroupsView() {
+export default function ProjectGroupsView({ teams = [], activeWorkspaceId }) {
   const [groups, setGroups] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeGroup, setActiveGroup] = useState(null);
@@ -48,6 +49,13 @@ export default function ProjectGroupsView() {
     }
   };
 
+  const shareGroup = async (group, teamId, shouldShare) => {
+    const sharedWith = new Set((group.shared_with || []).map(String));
+    if (shouldShare) sharedWith.add(String(teamId)); else sharedWith.delete(String(teamId));
+    const response = await updateSharedCardAPI('project-groups', group.id, [...sharedWith]);
+    setGroups(current => current.map(item => item.id === group.id ? response.data : item));
+  };
+
   const query = searchQuery.trim().toLowerCase();
   const visibleGroups = useMemo(() => groups.filter(group => !query || [group.title, group.description].some(value => String(value || '').toLowerCase().includes(query))), [groups, query]);
 
@@ -59,6 +67,7 @@ export default function ProjectGroupsView() {
       {error && <p className="project-error">{error}</p>}
       <div className="project-card-grid">
         {visibleGroups.map(group => <article key={group.id} className="project-card" onDoubleClick={() => setActiveGroup(group)}>
+          <CardActions name={group.title} shareOnly shareable={group.workspace === activeWorkspaceId} teams={group.workspace === activeWorkspaceId ? teams : []} sharedWith={(group.shared_with || []).map(String)} onShareChange={(teamId, shouldShare) => shareGroup(group, teamId, shouldShare)} />
           <div className="card-kicker"><span>Project group</span><span>{group.item_count} items</span></div>
           <h2>{group.title}</h2>
           <p>{group.description || 'No description yet.'}</p>

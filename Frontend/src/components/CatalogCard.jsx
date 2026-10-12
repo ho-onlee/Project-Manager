@@ -13,6 +13,9 @@ export default function CatalogCard({
   onRestore,
   onRemove,
   onEdit,
+  teams = [],
+  sharedWith = [],
+  onShareChange,
   children,
 }) {
   return (
@@ -25,6 +28,10 @@ export default function CatalogCard({
         onRestore={onRestore}
         onEdit={onEdit}
         onRemove={onRemove}
+        shareable={Boolean(onShareChange)}
+        teams={teams}
+        sharedWith={sharedWith}
+        onShareChange={onShareChange}
       />
       <h2 title={name}>{name}</h2>
       <p title={description}>{description}</p>

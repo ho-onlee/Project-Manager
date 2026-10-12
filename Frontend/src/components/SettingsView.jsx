@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
 import { DEFAULT_REPORT_PROMPT, REPORT_PROMPT_STORAGE_KEY, readReportPrompt } from '../reportPrompt';
 import { readReviewReportData, saveReviewReportData } from '../accessibilitySettings';
+import TeamManagementPanel from './TeamManagementPanel';
 
-export default function SettingsView({ colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
+export default function SettingsView({ session, activeWorkspaceId, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
   const [apiKey, setApiKey] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [settings, setSettings] = useState(null);
+  const [geminiWorkspaceId, setGeminiWorkspaceId] = useState(userPreferences?.geminiWorkspaceId || session?.geminiWorkspaceId || activeWorkspaceId || '');
   const autoTestStarted = useRef(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -19,6 +21,18 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
   const [schemeError, setSchemeError] = useState('');
   const [reviewReportData, setReviewReportData] = useState(readReviewReportData);
   const keyVerified = Boolean(settings?.configured && settings?.validated);
+  const availableGeminiWorkspaces = session?.workspaces || [];
+  const keyWorkspace = availableGeminiWorkspaces.find(workspace => workspace.id === geminiWorkspaceId);
+  const canManageGeminiKey = keyWorkspace?.type !== 'team' || ['owner', 'admin'].includes(keyWorkspace?.role);
+
+  useEffect(() => {
+    if (!userPreferences) return;
+    setReportPrompt(userPreferences.reportPrompt || DEFAULT_REPORT_PROMPT);
+    setReviewReportData(userPreferences.reviewReportData ?? true);
+    const selectedKeyWorkspace = userPreferences.geminiWorkspaceId || session?.geminiWorkspaceId || activeWorkspaceId || '';
+    setGeminiWorkspaceId(selectedKeyWorkspace);
+    if (selectedKeyWorkspace) localStorage.setItem('projectnote-gemini-workspace', selectedKeyWorkspace);
+  }, [userPreferences, activeWorkspaceId, session?.geminiWorkspaceId]);
 
   const importThemeFile = async event => {
     const file = event.target.files?.[0];
@@ -127,10 +141,30 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
     }
   }
 
+  const changeGeminiWorkspace = async event => {
+    const workspaceId = event.target.value;
+    setGeminiWorkspaceId(workspaceId);
+    if (workspaceId) localStorage.setItem('projectnote-gemini-workspace', workspaceId);
+    onUpdateUserPreferences({ geminiWorkspaceId: workspaceId });
+    setSettings(null);
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetchGeminiSettingsAPI();
+      setSettings(response.data);
+      if (response.data.configured && !response.data.validated) await testKey();
+    } catch (requestError) {
+      setError(requestError.response?.data?.detail || 'Gemini settings could not be loaded for this workspace.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const saveReportPrompt = event => {
     event.preventDefault();
     try {
       localStorage.setItem(REPORT_PROMPT_STORAGE_KEY, reportPrompt.trim());
+      onUpdateUserPreferences({ reportPrompt: reportPrompt.trim() });
       setPromptMessage('Report prompt saved in this browser.');
       setPromptError('');
     } catch {
@@ -143,6 +177,7 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
     setReportPrompt(DEFAULT_REPORT_PROMPT);
     try {
       localStorage.setItem(REPORT_PROMPT_STORAGE_KEY, DEFAULT_REPORT_PROMPT);
+      onUpdateUserPreferences({ reportPrompt: DEFAULT_REPORT_PROMPT });
       setPromptMessage('Default report prompt restored.');
       setPromptError('');
     } catch {
@@ -236,14 +271,16 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
         <p className="settings-description">Review the exact project JSON and report prompt before sending anything to Google.</p>
         <label className="accessibility-toggle">
           <span><strong>Review report data before sending</strong><small>Show a confirmation with the full request payload.</small></span>
-          <input type="checkbox" checked={reviewReportData} onChange={event => { setReviewReportData(event.target.checked); saveReviewReportData(event.target.checked); }} />
+          <input type="checkbox" checked={reviewReportData} onChange={event => { setReviewReportData(event.target.checked); saveReviewReportData(event.target.checked); onUpdateUserPreferences({ reviewReportData: event.target.checked }); }} />
         </label>
       </section>
+      <TeamManagementPanel session={session} activeWorkspaceId={activeWorkspaceId} onSessionUpdated={onSessionUpdated} />
       <section className="settings-panel" aria-labelledby="gemini-settings-title">
         <div className="settings-panel-heading">
           <div><span className="eyebrow">Report generation</span><h2 id="gemini-settings-title">Google Gemini</h2></div>
           <span className={`settings-status ${keyVerified ? 'is-configured' : ''}`}>{loading ? 'Checking…' : keyVerified ? 'Verified' : settings?.configured ? 'Needs test' : 'Not configured'}</span>
         </div>
+        {availableGeminiWorkspaces.length > 1 && <label className="gemini-workspace-choice">Use Gemini key from<select value={geminiWorkspaceId} onChange={changeGeminiWorkspace}>{availableGeminiWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.type === 'team' ? 'Team' : 'Personal'}</option>)}</select></label>}
         <p className="settings-description">Reports use {settings?.model || 'gemini-3.5-flash-lite'}. Project JSON is sent to Google when generating a report. Your API key is saved in Windows Credential Manager and is never shown after saving.</p>
         {settings?.source && <p className="settings-source">Key source: {settings.source}</p>}
         {settings?.configured && <p className="settings-source">Testing sends one short prompt to verify Gemini access.</p>}
@@ -251,15 +288,14 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
           <span className="settings-message">API key verified and ready.</span>
           <div>
             <button className="secondary-setting-button" type="button" onClick={testKey} disabled={saving}>{saving ? 'Testing…' : 'Test again'}</button>
-            <button className="secondary-setting-button" type="button" onClick={() => setShowKeyInput(true)}>Change key</button>
-            <button className="settings-remove-button" type="button" onClick={removeKey} disabled={saving}>Remove key</button>
+            {canManageGeminiKey && <><button className="secondary-setting-button" type="button" onClick={() => setShowKeyInput(true)}>Change key</button><button className="settings-remove-button" type="button" onClick={removeKey} disabled={saving}>Remove key</button></>}
           </div>
         </div>}
         {settings?.configured && !keyVerified && <div className="gemini-key-actions">
           <button className="primary-button" type="button" onClick={testKey} disabled={saving || loading}>{saving ? 'Testing…' : 'Test saved key'}</button>
-          <button className="settings-remove-button" type="button" onClick={removeKey} disabled={saving}>Remove saved key</button>
+          {canManageGeminiKey && <button className="settings-remove-button" type="button" onClick={removeKey} disabled={saving}>Remove saved key</button>}
         </div>}
-        {(!keyVerified || showKeyInput) && <form className="settings-key-form" onSubmit={saveKey}>
+        {((!keyVerified && canManageGeminiKey) || showKeyInput) && <form className="settings-key-form" onSubmit={saveKey}>
           <label htmlFor="gemini-api-key">Gemini API key</label>
           <div className="settings-key-row">
             <input id="gemini-api-key" type="password" autoComplete="new-password" minLength="20" maxLength="512" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={settings?.configured ? 'Enter a new key to replace the saved key' : 'Paste your Gemini API key'} required />
@@ -267,6 +303,8 @@ export default function SettingsView({ colorSchemes = [], selectedColorSchemeId 
             {keyVerified && showKeyInput && <button className="secondary-setting-button" type="button" onClick={() => { setShowKeyInput(false); setApiKey(''); }}>Cancel</button>}
           </div>
         </form>}
+        {settings?.configured && !canManageGeminiKey && <p className="settings-source">This team key is managed by a team owner/admin. Team members can select it for reports but cannot replace or remove it.</p>}
+        {!settings?.configured && !canManageGeminiKey && <p className="settings-source">This team has no Gemini key configured. Ask a team owner/admin to add one.</p>}
         {message && <p className="settings-message" role="status">{message}</p>}
         {error && <p className="settings-error" role="alert">{error}</p>}
       </section>

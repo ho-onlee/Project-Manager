@@ -1,5 +1,20 @@
+from django.db.models import Q
 from rest_framework import serializers
-from .models import Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool
+from .models import Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, Workspace
+from .workspaces import get_active_workspace
+
+
+def accessible_workspace_filter(workspace, field='workspace'):
+    owner_path, _, _ = field.rpartition('__')
+    shared_path = f'{owner_path}__shared_with' if owner_path else 'shared_with'
+    return Q(**{field: workspace}) | Q(**{shared_path: workspace})
+
+
+def user_workspace_from_context(context):
+    request = context.get('request')
+    if request is None or not request.user.is_authenticated:
+        return None
+    return get_active_workspace(request)
 
 class ProjectNodeSerializer(serializers.ModelSerializer):
     children = serializers.SerializerMethodField()
@@ -9,6 +24,15 @@ class ProjectNodeSerializer(serializers.ModelSerializer):
         model = ProjectNode
         fields = ['id', 'project', 'parent', 'title', 'description', 'node_type', 'content', 'image_url', 'list_style', 'is_project_root', 'level', 'order', 'x', 'y', 'children']
         read_only_fields = ['children']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        workspace = user_workspace_from_context(self.context)
+        if workspace is not None:
+            projects = Project.objects.filter(accessible_workspace_filter(workspace))
+            fields['project'].queryset = projects
+            fields['parent'].queryset = ProjectNode.objects.filter(project__in=projects)
+        return fields
 
     def get_children(self, obj):
         return ProjectNodeSerializer(obj.children.all(), many=True).data
@@ -40,6 +64,16 @@ class ProjectRelationshipSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectRelationship
         fields = ['id', 'project', 'source', 'target', 'label', 'sourceOrder', 'targetOrder', 'sourceLevel', 'targetLevel', 'stagnant']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        workspace = user_workspace_from_context(self.context)
+        if workspace is not None:
+            projects = Project.objects.filter(accessible_workspace_filter(workspace))
+            fields['project'].queryset = projects
+            fields['source'].queryset = ProjectNode.objects.filter(project__in=projects)
+            fields['target'].queryset = ProjectNode.objects.filter(project__in=projects)
+        return fields
 
     def get_sourceLevel(self, obj):
         return ProjectNodeSerializer().get_level(obj.source)
@@ -79,11 +113,12 @@ class ProjectRelationshipSerializer(serializers.ModelSerializer):
 class ProjectSerializer(serializers.ModelSerializer):
     nodes = serializers.SerializerMethodField()
     relationships = ProjectRelationshipSerializer(many=True, read_only=True)
+    shared_with = serializers.PrimaryKeyRelatedField(many=True, queryset=Workspace.objects.filter(workspace_type=Workspace.TEAM), required=False)
 
     class Meta:
         model = Project
-        fields = ['id', 'title', 'description', 'nodes', 'relationships', 'created_at', 'updated_at']
-        read_only_fields = ['nodes', 'relationships', 'created_at', 'updated_at']
+        fields = ['id', 'workspace', 'shared_with', 'title', 'description', 'nodes', 'relationships', 'created_at', 'updated_at']
+        read_only_fields = ['workspace', 'nodes', 'relationships', 'created_at', 'updated_at']
 
     def get_nodes(self, obj):
         roots = obj.nodes.filter(parent__isnull=True).prefetch_related('children')
@@ -98,6 +133,15 @@ class ProjectGroupItemSerializer(serializers.ModelSerializer):
         model = ProjectGroupItem
         fields = ['id', 'group', 'project', 'projectTitle', 'projectDescription', 'item_type', 'title', 'content', 'shape_type', 'x', 'y', 'width', 'height', 'order']
         read_only_fields = ['projectTitle', 'projectDescription']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        workspace = user_workspace_from_context(self.context)
+        if workspace is not None:
+            groups = ProjectGroup.objects.filter(accessible_workspace_filter(workspace))
+            fields['group'].queryset = groups
+            fields['project'].queryset = Project.objects.filter(accessible_workspace_filter(workspace))
+        return fields
 
     def validate(self, attrs):
         item_type = attrs.get('item_type', self.instance.item_type if self.instance else None)
@@ -118,11 +162,12 @@ class ProjectGroupSerializer(serializers.ModelSerializer):
     items = ProjectGroupItemSerializer(many=True, read_only=True)
     item_count = serializers.IntegerField(source='items.count', read_only=True)
     relationships = serializers.SerializerMethodField()
+    shared_with = serializers.PrimaryKeyRelatedField(many=True, queryset=Workspace.objects.filter(workspace_type=Workspace.TEAM), required=False)
 
     class Meta:
         model = ProjectGroup
-        fields = ['id', 'title', 'description', 'items', 'item_count', 'relationships', 'created_at', 'updated_at']
-        read_only_fields = ['items', 'item_count', 'relationships', 'created_at', 'updated_at']
+        fields = ['id', 'workspace', 'shared_with', 'title', 'description', 'items', 'item_count', 'relationships', 'created_at', 'updated_at']
+        read_only_fields = ['workspace', 'items', 'item_count', 'relationships', 'created_at', 'updated_at']
 
     def get_relationships(self, obj):
         return ProjectGroupRelationshipSerializer(obj.relationships.all(), many=True).data
@@ -132,6 +177,16 @@ class ProjectGroupRelationshipSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectGroupRelationship
         fields = ['id', 'group', 'source', 'target', 'relationship_type', 'label']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        workspace = user_workspace_from_context(self.context)
+        if workspace is not None:
+            groups = ProjectGroup.objects.filter(accessible_workspace_filter(workspace))
+            fields['group'].queryset = groups
+            fields['source'].queryset = ProjectGroupItem.objects.filter(group__in=groups)
+            fields['target'].queryset = ProjectGroupItem.objects.filter(group__in=groups)
+        return fields
 
     def validate(self, attrs):
         group = attrs.get('group', self.instance.group if self.instance else None)
@@ -163,10 +218,27 @@ class NodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node
         fields = '__all__' # This ensures type and content are sent back to React!
+        read_only_fields = ['workspace']
 class EdgeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Edge
         fields = ['id', 'source', 'target', 'label']
+
+        def get_fields(self):
+            fields = super().get_fields()
+            workspace = user_workspace_from_context(self.context)
+            if workspace is not None:
+                nodes = Node.objects.filter(workspace=workspace)
+                fields['source'].queryset = nodes
+                fields['target'].queryset = nodes
+            return fields
+
+        def validate(self, attrs):
+            source = attrs.get('source', self.instance.source if self.instance else None)
+            target = attrs.get('target', self.instance.target if self.instance else None)
+            if source and target and source.workspace_id != target.workspace_id:
+                raise serializers.ValidationError('Both nodes must belong to the same workspace.')
+            return attrs
 
 class NestedNodeSerializer(serializers.ModelSerializer):
     # This creates the infinite nesting recursively
@@ -193,10 +265,12 @@ class FlatNodeSerializer(serializers.ModelSerializer):
 
 class SkillSerializer(serializers.ModelSerializer):
     toolIds = serializers.SerializerMethodField()
+    shared_with = serializers.PrimaryKeyRelatedField(many=True, queryset=Workspace.objects.filter(workspace_type=Workspace.TEAM), required=False)
 
     class Meta:
         model = Skill
-        fields = ['id', 'name', 'description', 'toolIds']
+        fields = ['id', 'workspace', 'shared_with', 'name', 'description', 'toolIds']
+        read_only_fields = ['workspace']
 
     def get_toolIds(self, obj):
         return list(obj.tools.values_list('id', flat=True))
@@ -204,10 +278,12 @@ class SkillSerializer(serializers.ModelSerializer):
 
 class ToolSerializer(serializers.ModelSerializer):
     skillIds = serializers.ListField(child=serializers.UUIDField(), write_only=True, required=False)
+    shared_with = serializers.PrimaryKeyRelatedField(many=True, queryset=Workspace.objects.filter(workspace_type=Workspace.TEAM), required=False)
 
     class Meta:
         model = Tool
-        fields = ['id', 'name', 'description', 'features', 'skillIds']
+        fields = ['id', 'workspace', 'shared_with', 'name', 'description', 'features', 'skillIds']
+        read_only_fields = ['workspace']
 
     def validate_skillIds(self, value):
         if not value:
@@ -244,6 +320,15 @@ class ToolSerializer(serializers.ModelSerializer):
 
 
 class EnvironmentSerializer(serializers.ModelSerializer):
+    shared_with = serializers.PrimaryKeyRelatedField(many=True, queryset=Workspace.objects.filter(workspace_type=Workspace.TEAM), required=False)
+
     class Meta:
         model = Environment
-        fields = ['id', 'name', 'description']
+        fields = ['id', 'workspace', 'shared_with', 'name', 'description']
+        read_only_fields = ['workspace']
+
+    def validate_skillIds(self, value):
+        workspace = user_workspace_from_context(self.context)
+        if workspace is not None and Skill.objects.filter(id__in=value).exclude(accessible_workspace_filter(workspace)).exists():
+            raise serializers.ValidationError('Select skills available in the active workspace.')
+        return value

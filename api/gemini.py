@@ -6,6 +6,7 @@ import urllib.request
 from django.conf import settings
 from django.core.cache import cache
 import keyring
+from .models import Workspace, WorkspaceGeminiCredential
 
 KEYRING_SERVICE = 'ProjectNote'
 KEYRING_USERNAME = 'gemini-api-key'
@@ -46,19 +47,32 @@ def project_report_fingerprint(project_json, report_prompt):
     return hashlib.sha256(cache_input.encode('utf-8')).hexdigest()
 
 
-def get_gemini_api_key():
+def _gemini_keyring_username(workspace_id=None):
+    return f'{KEYRING_USERNAME}:{workspace_id}' if workspace_id else KEYRING_USERNAME
+
+
+def get_gemini_api_key(workspace_id=None):
     try:
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME) or settings.GEMINI_API_KEY
+        username = _gemini_keyring_username(workspace_id)
+        stored_key = keyring.get_password(KEYRING_SERVICE, username)
+        if stored_key:
+            return stored_key
+        if workspace_id:
+            workspace_type = Workspace.objects.filter(id=workspace_id).values_list('workspace_type', flat=True).first()
+            if workspace_type == Workspace.PERSONAL and not WorkspaceGeminiCredential.objects.filter(workspace_id=workspace_id).exists():
+                return settings.GEMINI_API_KEY
+            return ''
+        return settings.GEMINI_API_KEY
     except Exception as error:
         raise GeminiConfigurationError('The operating system credential store is unavailable.') from error
 
 
-def get_gemini_key_source():
-    api_key = get_gemini_api_key()
+def get_gemini_key_source(workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         return None
     try:
-        if keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME):
+        if keyring.get_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id)):
             return 'Windows Credential Manager'
     except Exception as error:
         raise GeminiConfigurationError('The operating system credential store is unavailable.') from error
@@ -70,26 +84,26 @@ def _gemini_key_validation_cache_key(api_key):
     return f'{GEMINI_KEY_VALIDATION_CACHE_PREFIX}{fingerprint}'
 
 
-def is_gemini_api_key_validated():
-    api_key = get_gemini_api_key()
+def is_gemini_api_key_validated(workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     return bool(api_key and cache.get(_gemini_key_validation_cache_key(api_key)))
 
 
-def mark_gemini_api_key_validated():
-    api_key = get_gemini_api_key()
+def mark_gemini_api_key_validated(workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         raise GeminiConfigurationError('Add a Gemini API key in Settings before testing it.')
     cache.set(_gemini_key_validation_cache_key(api_key), True, timeout=None)
 
 
-def clear_gemini_api_key_validation():
-    api_key = get_gemini_api_key()
+def clear_gemini_api_key_validation(workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     if api_key:
         cache.delete(_gemini_key_validation_cache_key(api_key))
 
 
-def test_gemini_api_key():
-    api_key = get_gemini_api_key()
+def test_gemini_api_key(workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         raise GeminiConfigurationError('Add a Gemini API key in Settings before testing it.')
 
@@ -121,24 +135,24 @@ def test_gemini_api_key():
     return True
 
 
-def store_gemini_api_key(api_key):
+def store_gemini_api_key(api_key, workspace_id=None):
     try:
-        keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key)
+        keyring.set_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id), api_key)
     except Exception as error:
         raise GeminiConfigurationError('The operating system credential store could not save the API key.') from error
 
 
-def delete_gemini_api_key():
+def delete_gemini_api_key(workspace_id=None):
     try:
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
+        keyring.delete_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id))
     except keyring.errors.PasswordDeleteError:
         pass
     except Exception as error:
         raise GeminiConfigurationError('The operating system credential store could not remove the API key.') from error
 
 
-def generate_project_report(project_json, report_prompt=''):
-    api_key = get_gemini_api_key()
+def generate_project_report(project_json, report_prompt='', workspace_id=None):
+    api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         raise GeminiConfigurationError('Add a Gemini API key in Settings before generating a report.')
 

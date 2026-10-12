@@ -6,9 +6,9 @@ import CardVisibilityTabs from './CardVisibilityTabs';
 import CatalogSearch from './CatalogSearch';
 import useHiddenCards from './useHiddenCards';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
-import { createSkillAPI, createToolAPI, deleteToolAPI, fetchSkills, fetchTools, updateToolAPI } from '../api';
+import { createSkillAPI, createToolAPI, deleteToolAPI, fetchSkills, fetchTools, updateSharedCardAPI, updateToolAPI } from '../api';
 
-export default function ToolView() {
+export default function ToolView({ teams = [], activeWorkspaceId }) {
   const [tools, setTools] = useState([]);
   const [skills, setSkills] = useState([]);
   const [addMode, setAddMode] = useState(null);
@@ -72,6 +72,13 @@ export default function ToolView() {
     setAddMode(null);
   };
 
+  const shareTool = async (tool, teamId, shouldShare) => {
+    const sharedWith = new Set((tool.shared_with || []).map(String));
+    if (shouldShare) sharedWith.add(String(teamId)); else sharedWith.delete(String(teamId));
+    const response = await updateSharedCardAPI('tools', tool.id, [...sharedWith]);
+    setTools(current => current.map(item => item.id === tool.id ? response.data : item));
+  };
+
   const removeToolFromCard = async toolId => {
     const tool = tools.find(item => String(item.id) === String(toolId));
     if (!tool || !window.confirm(`Remove "${tool.name}"? This cannot be undone.`)) return;
@@ -92,7 +99,7 @@ export default function ToolView() {
           <CardVisibilityTabs view={cardView} onChange={setCardView} allCount={tools.length - hiddenToolsCount} hiddenCount={hiddenToolsCount} />
         </div>
         <div className="catalog-grid">
-          {filteredTools.map(tool => <ToolCard id={`tools-card-${tool.id}`} key={tool.id} tool={tool} skills={skills} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(tool.id))} onHide={() => hideCard(tool.id)} onRestore={() => restoreCard(tool.id)} onRemove={() => removeToolFromCard(tool.id)} onAddSkill={addSkillToTool} onEdit={toolToEdit => setAddMode({ type: 'edit-tool', item: toolToEdit })} />)}
+          {filteredTools.map(tool => <ToolCard id={`tools-card-${tool.id}`} key={tool.id} tool={tool} skills={skills} teams={tool.workspace === activeWorkspaceId ? teams : []} onShareChange={shareTool} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(tool.id))} onHide={() => hideCard(tool.id)} onRestore={() => restoreCard(tool.id)} onRemove={() => removeToolFromCard(tool.id)} onAddSkill={addSkillToTool} onEdit={toolToEdit => setAddMode({ type: 'edit-tool', item: toolToEdit })} />)}
         </div>
         {!filteredTools.length && <p className="hidden-cards-empty">{query ? `No tools match "${searchQuery.trim()}".` : cardView === 'hidden' ? 'No hidden tools.' : 'No tools yet.'}</p>}
       </section>

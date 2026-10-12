@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, SkillViewSet, ToolViewSet
+from .views import AuthSessionView, ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, CsrfTokenView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, GoogleSignInView, LoginView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, PublicTeamListView, RegisterView, SkillViewSet, ToolViewSet, UserPreferencesView, VerifyEmailView, WorkspaceListView, WorkspaceMembersView, WorkspaceUsersView
 
 # The router automatically generates standard REST URLs
 router = DefaultRouter()
@@ -17,6 +17,17 @@ router.register(r'tools', ToolViewSet)
 router.register(r'environments', EnvironmentViewSet)
 
 urlpatterns = [
+    path('auth/csrf/', CsrfTokenView.as_view(), name='auth-csrf'),
+    path('auth/session/', AuthSessionView.as_view(), name='auth-session'),
+    path('auth/register/', RegisterView.as_view(), name='auth-register'),
+    path('auth/verify-email/', VerifyEmailView.as_view(), name='auth-verify-email'),
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/google/', GoogleSignInView.as_view(), name='auth-google'),
+    path('auth/teams/', PublicTeamListView.as_view(), name='auth-teams'),
+    path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),
+    path('workspaces/', WorkspaceListView.as_view(), name='workspace-list'),
+    path('workspaces/<uuid:workspace_id>/users/', WorkspaceUsersView.as_view(), name='workspace-users'),
+    path('workspaces/<uuid:workspace_id>/members/', WorkspaceMembersView.as_view(), name='workspace-members'),
     path('color-schemes/schema/', ColorSchemeSchemaView.as_view(), name='color-scheme-schema'),
     path('color-schemes/template/', ColorSchemeTemplateView.as_view(), name='color-scheme-template'),
     path('color-schemes/', ColorSchemesView.as_view(), name='color-schemes'),

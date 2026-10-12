@@ -6,9 +6,9 @@ import CardVisibilityTabs from './CardVisibilityTabs';
 import CatalogSearch from './CatalogSearch';
 import useHiddenCards from './useHiddenCards';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
-import { createSkillAPI, deleteSkillAPI, fetchSkills, fetchTools, updateSkillAPI } from '../api';
+import { createSkillAPI, deleteSkillAPI, fetchSkills, fetchTools, updateSharedCardAPI, updateSkillAPI } from '../api';
 
-export default function SkillView() {
+export default function SkillView({ teams = [], activeWorkspaceId }) {
   const [skills, setSkills] = useState([]);
   const [tools, setTools] = useState([]);
   const [addMode, setAddMode] = useState(null);
@@ -34,6 +34,13 @@ export default function SkillView() {
     const response = await updateSkillAPI(skillId, updates);
     setSkills(current => current.map(skill => skill.id === skillId ? { ...skill, ...response.data } : skill));
     setAddMode(null);
+  };
+
+  const shareSkill = async (skill, teamId, shouldShare) => {
+    const sharedWith = new Set((skill.shared_with || []).map(String));
+    if (shouldShare) sharedWith.add(String(teamId)); else sharedWith.delete(String(teamId));
+    const response = await updateSharedCardAPI('skills', skill.id, [...sharedWith]);
+    setSkills(current => current.map(item => item.id === skill.id ? response.data : item));
   };
 
   const deleteSkill = async skillId => {
@@ -83,7 +90,7 @@ export default function SkillView() {
           <CardVisibilityTabs view={cardView} onChange={setCardView} allCount={skills.length - hiddenSkillsCount} hiddenCount={hiddenSkillsCount} />
         </div>
         <div className="catalog-grid">
-          {filteredSkills.map(skill => <SkillCard id={`skills-card-${skill.id}`} key={skill.id} skill={skill} tools={tools} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(skill.id))} onHide={() => hideCard(skill.id)} onRestore={() => restoreCard(skill.id)} onRemove={() => removeSkillFromCard(skill.id)} onEdit={skillToEdit => setAddMode({ type: 'edit-skill', item: skillToEdit })} />)}
+          {filteredSkills.map(skill => <SkillCard id={`skills-card-${skill.id}`} key={skill.id} skill={skill} tools={tools} teams={skill.workspace === activeWorkspaceId ? teams : []} onShareChange={shareSkill} hidden={cardView === 'hidden'} highlighted={createdCardIds.has(String(skill.id))} onHide={() => hideCard(skill.id)} onRestore={() => restoreCard(skill.id)} onRemove={() => removeSkillFromCard(skill.id)} onEdit={skillToEdit => setAddMode({ type: 'edit-skill', item: skillToEdit })} />)}
         </div>
         {!filteredSkills.length && <p className="hidden-cards-empty">{query ? `No skills match "${searchQuery.trim()}".` : cardView === 'hidden' ? 'No hidden skills.' : 'No skills yet.'}</p>}
       </section>

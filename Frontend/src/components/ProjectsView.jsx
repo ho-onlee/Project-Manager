@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { createProjectAPI, fetchProjects, generateProjectReportAPI } from '../api';
+import { createProjectAPI, fetchProjects, generateProjectReportAPI, updateSharedCardAPI } from '../api';
+import CardActions from './CardActions';
 import FloatingAction from './FloatingAction';
 import ProjectModal from './ProjectModal';
 import ProjectDiagram from './ProjectDiagram';
@@ -10,7 +11,7 @@ import { readReportPrompt } from '../reportPrompt';
 import { readReviewReportData } from '../accessibilitySettings';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
 
-export default function ProjectsView() {
+export default function ProjectsView({ teams = [], activeWorkspaceId }) {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
   const [activeReport, setActiveReport] = useState(null);
@@ -43,6 +44,13 @@ export default function ProjectsView() {
     } catch {
       setError('Project could not be created.');
     }
+  };
+
+  const shareProject = async (project, teamId, shouldShare) => {
+    const sharedWith = new Set((project.shared_with || []).map(String));
+    if (shouldShare) sharedWith.add(String(teamId)); else sharedWith.delete(String(teamId));
+    const response = await updateSharedCardAPI('projects', project.id, [...sharedWith]);
+    setProjects(current => current.map(item => item.id === project.id ? response.data : item));
   };
 
   const projectToJSON = project => {
@@ -133,6 +141,7 @@ export default function ProjectsView() {
       <div className="project-card-grid">
         {filteredProjects.map(project => (
           <article id={`projects-card-${project.id}`} className={`project-card ${createdCardIds.has(String(project.id)) ? 'is-highlighted' : ''}`} key={project.id} onDoubleClick={() => setActiveProject(project)}>
+            <CardActions name={project.title} shareOnly shareable={project.workspace === activeWorkspaceId} teams={project.workspace === activeWorkspaceId ? teams : []} sharedWith={(project.shared_with || []).map(String)} onShareChange={(teamId, shouldShare) => shareProject(project, teamId, shouldShare)} />
             <div className="card-kicker"><span>Project</span><span>{project.nodes?.length || 0} roots</span></div>
             <h2>{project.title}</h2>
             <p>{project.description || 'No description yet.'}</p>
