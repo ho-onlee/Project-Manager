@@ -148,3 +148,7 @@ npm run build
 ## Deployment Notes
 
 The checked-in non-Docker Django defaults are for local development: SQLite, an in-memory cache, and `DEBUG = True`. Docker Compose uses PostgreSQL and defaults debug off. Before exposing either setup publicly, configure a private `DJANGO_SECRET_KEY`, set `DJANGO_ALLOWED_HOSTS`, configure production CORS/CSRF origins, and terminate TLS in a trusted reverse proxy. When serving HTTPS, set `SESSION_COOKIE_SECURE=true`, `CSRF_COOKIE_SECURE=true`, and `SECURE_PROXY_SSL_HEADER=true`. Team Gemini keys require a credential store accessible to the backend container/service account; the default container does not include a desktop keyring service. Do not put team keys in frontend build arguments or commit secrets to `.env`.
+
+
+## If you like this project...
+Consider buying me a cup of ![coffee](https://ko-fi.com/hoon_lee)
