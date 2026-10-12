@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
 import { DEFAULT_REPORT_PROMPT, REPORT_PROMPT_STORAGE_KEY, readReportPrompt } from '../reportPrompt';
 import { readReviewReportData, saveReviewReportData } from '../accessibilitySettings';
+import TeamAccessPanel from './TeamAccessPanel';
 
-export default function SettingsView({ session, activeWorkspaceId, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
+export default function SettingsView({ session, activeWorkspaceId, onChangeWorkspace, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
   const [apiKey, setApiKey] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [settings, setSettings] = useState(null);
@@ -224,6 +225,7 @@ export default function SettingsView({ session, activeWorkspaceId, onSessionUpda
         {schemeMessage && <p className="settings-message" role="status">{schemeMessage}</p>}
         {schemeError && <p className="settings-error" role="alert">{schemeError}</p>}
       </section>
+      <TeamAccessPanel session={session} activeWorkspaceId={activeWorkspaceId} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} />
       <section className="settings-panel report-prompt-panel" aria-labelledby="report-prompt-title">
         <div className="settings-panel-heading">
           <div><span className="eyebrow">Report instructions</span><h2 id="report-prompt-title">Prompt for report generation</h2></div>

@@ -14,7 +14,7 @@ export default function AppView({ activeView, onNavigate, onChangeWorkspace, col
   const activeWorkspace = session?.workspaces?.find(workspace => workspace.id === activeWorkspaceId);
   const canManageAssignments = activeWorkspace?.type === 'team' && ['owner', 'admin'].includes(activeWorkspace.role);
   if (activeView === 'dashboard') {
-    return <DashboardView session={{ ...session, activeWorkspaceId }} onNavigate={onNavigate} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} />;
+    return <DashboardView session={{ ...session, activeWorkspaceId }} onNavigate={onNavigate} />;
   }
   if (activeView === 'title') {
     return <TitleView onNavigate={onNavigate} />;
@@ -35,7 +35,7 @@ export default function AppView({ activeView, onNavigate, onChangeWorkspace, col
     return <EnvironmentView teams={teams} activeWorkspaceId={activeWorkspaceId} />;
   }
   if (activeView === 'settings') {
-    return <SettingsView session={session} activeWorkspaceId={activeWorkspaceId} onSessionUpdated={onSessionUpdated} userPreferences={userPreferences} onUpdateUserPreferences={onUpdateUserPreferences} colorSchemes={colorSchemes} selectedColorSchemeId={selectedColorSchemeId} onSelectColorScheme={onSelectColorScheme} onImportColorScheme={onImportColorScheme} accessibility={accessibility} onAccessibilityChange={onAccessibilityChange} />;
+    return <SettingsView session={session} activeWorkspaceId={activeWorkspaceId} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} userPreferences={userPreferences} onUpdateUserPreferences={onUpdateUserPreferences} colorSchemes={colorSchemes} selectedColorSchemeId={selectedColorSchemeId} onSelectColorScheme={onSelectColorScheme} onImportColorScheme={onImportColorScheme} accessibility={accessibility} onAccessibilityChange={onAccessibilityChange} />;
   }
   return <SkillView teams={teams} activeWorkspaceId={activeWorkspaceId} />;
 }
