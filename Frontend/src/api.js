@@ -31,6 +31,7 @@ export const fetchWorkspacesAPI = () => API.get('/workspaces/');
 export const fetchUserPreferencesAPI = () => API.get('/preferences/');
 export const updateUserPreferencesAPI = preferences => API.patch('/preferences/', preferences);
 export const createWorkspaceAPI = name => API.post('/workspaces/', { name });
+export const requestWorkspaceAccessAPI = workspaceId => API.post(`/workspaces/${workspaceId}/request-access/`);
 export const deleteWorkspaceAPI = workspaceId => API.delete(`/workspaces/${workspaceId}/`);
 export const fetchWorkspaceUsersAPI = (workspaceId, query = '') => API.get(`/workspaces/${workspaceId}/users/`, { params: { q: query } });
 export const fetchWorkspaceMembersAPI = workspaceId => API.get(`/workspaces/${workspaceId}/members/`);

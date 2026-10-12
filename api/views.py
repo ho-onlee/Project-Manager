@@ -292,14 +292,29 @@ class WorkspaceListView(APIView):
         } for item in memberships])
 
     def post(self, request):
-        if not request.user.is_staff:
-            return Response({'detail': 'Only the ProjectNote administrator can create teams.'}, status=status.HTTP_403_FORBIDDEN)
         name = str(request.data.get('name', '')).strip()
         if not name:
             return Response({'name': ['Enter a team name.']}, status=status.HTTP_400_BAD_REQUEST)
         team = Workspace.objects.create(name=name[:150], workspace_type=Workspace.TEAM, created_by=request.user)
         WorkspaceMembership.objects.create(workspace=team, user=request.user, role=WorkspaceMembership.OWNER)
         return Response({'id': str(team.id), 'name': team.name, 'type': team.workspace_type, 'role': WorkspaceMembership.OWNER, 'status': WorkspaceMembership.ACTIVE}, status=status.HTTP_201_CREATED)
+
+
+class WorkspaceJoinRequestView(APIView):
+    def post(self, request, workspace_id):
+        team = Workspace.objects.filter(id=workspace_id, workspace_type=Workspace.TEAM).first()
+        if team is None:
+            return Response({'detail': 'Team not found.'}, status=status.HTTP_404_NOT_FOUND)
+        membership, created = WorkspaceMembership.objects.get_or_create(
+            workspace=team,
+            user=request.user,
+            defaults={'role': WorkspaceMembership.MEMBER, 'status': WorkspaceMembership.PENDING},
+        )
+        return Response({
+            'workspaceId': str(team.id),
+            'status': membership.status,
+            'detail': 'Access request submitted.' if membership.status == WorkspaceMembership.PENDING else 'You are already a member of this team.',
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class WorkspaceDetailView(APIView):

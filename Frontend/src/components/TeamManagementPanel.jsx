@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { addWorkspaceMemberAPI, createWorkspaceAPI, deleteWorkspaceAPI, fetchProjects, fetchSkills, fetchTools, fetchWorkspaceCardAssignmentsAPI, fetchWorkspaceMembersAPI, fetchWorkspaceUsersAPI, removeWorkspaceMemberAPI, updateWorkspaceCardAssignmentsAPI } from '../api';
+import { addWorkspaceMemberAPI, deleteWorkspaceAPI, fetchProjects, fetchSkills, fetchTools, fetchWorkspaceCardAssignmentsAPI, fetchWorkspaceMembersAPI, fetchWorkspaceUsersAPI, removeWorkspaceMemberAPI, updateWorkspaceCardAssignmentsAPI } from '../api';
 
 export default function TeamManagementPanel({ session, activeWorkspaceId, onSessionUpdated }) {
   const [members, setMembers] = useState([]);
   const [search, setSearch] = useState('');
   const [availableUsers, setAvailableUsers] = useState([]);
-  const [newTeamName, setNewTeamName] = useState('');
   const [busyUserId, setBusyUserId] = useState(null);
   const [assignmentType, setAssignmentType] = useState('projects');
   const [assignmentCards, setAssignmentCards] = useState([]);
@@ -137,20 +136,6 @@ export default function TeamManagementPanel({ session, activeWorkspaceId, onSess
     }
   };
 
-  const createTeam = async event => {
-    event.preventDefault();
-    setError('');
-    setNotice('');
-    try {
-      await createWorkspaceAPI(newTeamName.trim());
-      setNewTeamName('');
-      await onSessionUpdated();
-      setNotice('Team created. Switch to it using the workspace selector.');
-    } catch (requestError) {
-      setError(requestError.response?.data?.name?.[0] || requestError.response?.data?.detail || 'Team could not be created.');
-    }
-  };
-
   const deleteTeam = async () => {
     if (!activeWorkspace || !window.confirm(`Permanently delete “${activeWorkspace.name}”? Its team-owned projects, groups, catalog cards, member access, and team Gemini key will be deleted. Cards merely shared into this team remain in their original workspaces.`)) return;
     setError('');
@@ -169,7 +154,6 @@ export default function TeamManagementPanel({ session, activeWorkspaceId, onSess
       <div className="users-context-bar">
         <div><span className="eyebrow">Active workspace</span><strong>{activeWorkspace?.name || 'Personal workspace'}</strong></div>
         {canDeleteTeam && <button className="settings-remove-button" type="button" onClick={deleteTeam}>Delete team</button>}
-        {session?.user?.isAdmin && <form className="team-create-form" onSubmit={createTeam}><label className="visually-hidden" htmlFor="new-team-name">Create team</label><input id="new-team-name" value={newTeamName} onChange={event => setNewTeamName(event.target.value)} placeholder="New team name" required /><button className="secondary-setting-button" type="submit">Create team</button></form>}
       </div>
       {session?.pendingTeams?.length > 0 && <div className="team-pending-list"><strong>Pending team requests</strong>{session.pendingTeams.map(team => <p key={team.id}>{team.name} <span>Waiting for admin approval</span></p>)}</div>}
       {canManageTeam ? <div className="users-management-grid">

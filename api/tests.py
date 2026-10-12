@@ -290,6 +290,27 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 		profile = AccountProfile.objects.get(user__email='new-user@example.com')
 		self.assertFalse(profile.email_verified)
 
+	def test_regular_account_can_create_a_team_and_becomes_owner(self):
+		response = self.client.post(reverse('workspace-list'), {'name': 'Field research'}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		team = Workspace.objects.get(id=response.data['id'])
+		self.assertEqual(team.workspace_type, Workspace.TEAM)
+		self.assertEqual(team.created_by, self.user)
+		self.assertTrue(WorkspaceMembership.objects.filter(workspace=team, user=self.user, role=WorkspaceMembership.OWNER, status=WorkspaceMembership.ACTIVE).exists())
+
+	def test_existing_account_can_request_team_access_idempotently(self):
+		team = Workspace.objects.create(name='Open directory team', workspace_type=Workspace.TEAM)
+		url = reverse('workspace-request-access', args=[team.id])
+
+		first_response = self.client.post(url, {}, format='json')
+		second_response = self.client.post(url, {}, format='json')
+
+		self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(first_response.data['status'], WorkspaceMembership.PENDING)
+		self.assertEqual(WorkspaceMembership.objects.filter(workspace=team, user=self.user).count(), 1)
+
 	def test_email_verification_enables_password_login(self):
 		user = get_user_model().objects.create_user(username='verify@example.com', email='verify@example.com', password='M0re-Secure!Account-954')
 		AccountProfile.objects.create(user=user, email_verified=False)

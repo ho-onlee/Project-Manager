@@ -9,12 +9,12 @@ import TeamManagementPanel from './TeamManagementPanel';
 import DashboardView from './DashboardView';
 import TitleView from './TitleView';
 
-export default function AppView({ activeView, onNavigate, colorSchemes, selectedColorSchemeId, onSelectColorScheme, onImportColorScheme, accessibility, onAccessibilityChange, session, activeWorkspaceId, onSessionUpdated, userPreferences, onUpdateUserPreferences }) {
+export default function AppView({ activeView, onNavigate, onChangeWorkspace, colorSchemes, selectedColorSchemeId, onSelectColorScheme, onImportColorScheme, accessibility, onAccessibilityChange, session, activeWorkspaceId, onSessionUpdated, userPreferences, onUpdateUserPreferences }) {
   const teams = session?.workspaces?.filter(workspace => workspace.type === 'team') || [];
   const activeWorkspace = session?.workspaces?.find(workspace => workspace.id === activeWorkspaceId);
   const canManageAssignments = activeWorkspace?.type === 'team' && ['owner', 'admin'].includes(activeWorkspace.role);
   if (activeView === 'dashboard') {
-    return <DashboardView session={{ ...session, activeWorkspaceId }} onNavigate={onNavigate} />;
+    return <DashboardView session={{ ...session, activeWorkspaceId }} onNavigate={onNavigate} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} />;
   }
   if (activeView === 'title') {
     return <TitleView onNavigate={onNavigate} />;

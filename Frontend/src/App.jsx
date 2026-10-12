@@ -194,6 +194,7 @@ function App() {
         key={`${activeView}:${activeWorkspaceId || ''}`}
         activeView={activeView}
         onNavigate={navigate}
+        onChangeWorkspace={changeWorkspace}
         session={session}
         activeWorkspaceId={activeWorkspaceId}
         onSessionUpdated={refreshSession}
