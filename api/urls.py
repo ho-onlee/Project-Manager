@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AuthSessionView, ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, CsrfTokenView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, GoogleSignInView, LoginView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, PublicTeamListView, RegisterView, SkillViewSet, ToolViewSet, UserPreferencesView, VerifyEmailView, WorkspaceCardAssignmentsView, WorkspaceDetailView, WorkspaceJoinRequestView, WorkspaceListView, WorkspaceMembersView, WorkspaceUsersView
+from .views import AuthSessionView, ColorSchemeSchemaView, ColorSchemeTemplateView, ColorSchemesView, CsrfTokenView, EdgeViewSet, EnvironmentViewSet, GeminiKeyTestView, GeminiSettingsView, GoogleSignInView, LoginView, NodeViewSet, ProjectGroupItemViewSet, ProjectGroupRelationshipViewSet, ProjectGroupViewSet, ProjectNodeViewSet, ProjectRelationshipViewSet, ProjectViewSet, PublicTeamListView, RegisterView, SkillViewSet, ToolViewSet, UserPreferencesView, WorkspaceCardAssignmentsView, WorkspaceDetailView, WorkspaceJoinRequestView, WorkspaceListView, WorkspaceMembersView, WorkspaceUsersView
 
 # The router automatically generates standard REST URLs
 router = DefaultRouter()
@@ -20,7 +20,6 @@ urlpatterns = [
     path('auth/csrf/', CsrfTokenView.as_view(), name='auth-csrf'),
     path('auth/session/', AuthSessionView.as_view(), name='auth-session'),
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
-    path('auth/verify-email/', VerifyEmailView.as_view(), name='auth-verify-email'),
     path('auth/login/', LoginView.as_view(), name='auth-login'),
     path('auth/google/', GoogleSignInView.as_view(), name='auth-google'),
     path('auth/teams/', PublicTeamListView.as_view(), name='auth-teams'),

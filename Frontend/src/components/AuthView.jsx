@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fetchAuthCsrfAPI, fetchTeamsForSignupAPI, googleLoginAPI, loginAPI, registerAPI, verifyEmailAPI } from '../api';
+import { fetchAuthCsrfAPI, fetchTeamsForSignupAPI, googleLoginAPI, loginAPI, registerAPI } from '../api';
 
 export default function AuthView({ onAuthenticated, initialError = '' }) {
   const [mode, setMode] = useState('login');
@@ -20,17 +20,6 @@ export default function AuthView({ onAuthenticated, initialError = '' }) {
   useEffect(() => {
     fetchAuthCsrfAPI().catch(() => {});
     fetchTeamsForSignupAPI().then(response => setTeams(response.data)).catch(() => {});
-    const verificationToken = new URLSearchParams(window.location.search).get('verify_email');
-    if (!verificationToken) return;
-    setLoading(true);
-    verifyEmailAPI(verificationToken).then(response => {
-      setMode('login');
-      setEmail(response.data.email || '');
-      setNotice('Email verified. Sign in to continue.');
-      window.history.replaceState({}, '', window.location.pathname);
-    }).catch(requestError => {
-      setError(requestError.response?.data?.detail || 'Email verification failed.');
-    }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -81,8 +70,8 @@ export default function AuthView({ onAuthenticated, initialError = '' }) {
       const response = mode === 'login'
         ? await loginAPI({ email: email.trim(), password })
         : await registerAPI({ email: email.trim(), password, name, ...(teamId ? { teamId } : {}) });
-      if (response.data.verificationRequired) {
-        setNotice(`Check ${response.data.email} for a verification link before signing in.`);
+      if (response.data.registered) {
+        setNotice('Account created. Sign in to continue.');
         setMode('login');
         setPassword('');
       } else {
@@ -119,7 +108,7 @@ export default function AuthView({ onAuthenticated, initialError = '' }) {
           {mode === 'register' && <label>Team (optional)<select value={teamId} onChange={event => setTeamId(event.target.value)}><option value="">Personal workspace only</option>{teams.map(team => <option key={team.id} value={team.id}>{team.name} (request access)</option>)}</select></label>}
           <button className="primary-button auth-submit" type="submit" disabled={loading}>{loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}</button>
         </form>
-        {mode === 'register' && teamId && <p className="auth-pending-note">After email verification, your personal workspace is ready. A team admin must approve the access request.</p>}
+        {mode === 'register' && teamId && <p className="auth-pending-note">Your personal workspace is ready after sign-up. A team admin must approve the access request.</p>}
         {googleClientId && <><div className="auth-divider"><span>or continue with</span></div><div className="google-signin-container" ref={googleButtonRef} /></>}
         {error && <p className="auth-error" role="alert">{error}</p>}
         {notice && <p className="auth-notice" role="status">{notice}</p>}

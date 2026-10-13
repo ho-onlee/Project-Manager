@@ -3,7 +3,6 @@ import base64
 import json
 from unittest.mock import patch
 
-from django.core import signing
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, override_settings
@@ -274,21 +273,19 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 
 	def test_registration_creates_personal_workspace_and_pending_team_request(self):
 		team = Workspace.objects.create(name='Research team', workspace_type=Workspace.TEAM)
-		with patch('api.views.send_mail') as send_email:
-			response = self.client.post(reverse('auth-register'), {
-				'email': 'new-user@example.com',
-				'name': 'New User',
-				'password': 'M0re-Secure!Account-954',
-				'teamId': str(team.id),
-			}, format='json')
+		response = self.client.post(reverse('auth-register'), {
+			'email': 'new-user@example.com',
+			'name': 'New User',
+			'password': 'M0re-Secure!Account-954',
+			'teamId': str(team.id),
+		}, format='json')
 
-		self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-		self.assertTrue(response.data['verificationRequired'])
-		send_email.assert_called_once()
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		self.assertTrue(response.data['registered'])
 		membership = WorkspaceMembership.objects.get(workspace=team, user__email='new-user@example.com')
 		self.assertEqual(membership.status, WorkspaceMembership.PENDING)
 		profile = AccountProfile.objects.get(user__email='new-user@example.com')
-		self.assertFalse(profile.email_verified)
+		self.assertTrue(profile.email_verified)
 
 	def test_regular_account_can_create_a_team_and_becomes_owner(self):
 		response = self.client.post(reverse('workspace-list'), {'name': 'Field research'}, format='json')
@@ -310,17 +307,6 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 		self.assertEqual(second_response.status_code, status.HTTP_200_OK)
 		self.assertEqual(first_response.data['status'], WorkspaceMembership.PENDING)
 		self.assertEqual(WorkspaceMembership.objects.filter(workspace=team, user=self.user).count(), 1)
-
-	def test_email_verification_enables_password_login(self):
-		user = get_user_model().objects.create_user(username='verify@example.com', email='verify@example.com', password='M0re-Secure!Account-954')
-		AccountProfile.objects.create(user=user, email_verified=False)
-		token = signing.dumps({'user_id': str(user.id)}, salt='projectnote-email-verification')
-		verify = self.client.post(reverse('auth-verify-email'), {'token': token}, format='json')
-		login_response = self.client.post(reverse('auth-login'), {'email': user.email, 'password': 'M0re-Secure!Account-954'}, format='json')
-
-		self.assertEqual(verify.status_code, status.HTTP_200_OK)
-		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
-		self.assertTrue(login_response.data['emailVerified'])
 
 	@override_settings(GOOGLE_OAUTH_CLIENT_ID='test-google-client')
 	@patch('api.views.verify_google_identity', return_value={'email': 'linked@example.com', 'email_verified': True, 'given_name': 'Linked'})

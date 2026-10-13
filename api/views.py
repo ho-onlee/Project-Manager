@@ -4,8 +4,6 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout, password_validation
 from django.contrib.contenttypes.models import ContentType
-from django.core import signing
-from django.core.mail import send_mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -175,32 +173,8 @@ class RegisterView(APIView):
         WorkspaceMembership.objects.create(workspace=personal_workspace, user=user, role=WorkspaceMembership.OWNER)
         if team:
             WorkspaceMembership.objects.create(workspace=team, user=user, role=WorkspaceMembership.MEMBER, status=WorkspaceMembership.PENDING)
-        AccountProfile.objects.create(user=user, email_verified=False)
-        token = signing.dumps({'user_id': str(user.id)}, salt='projectnote-email-verification')
-        verification_url = f'{settings.FRONTEND_URL}/?verify_email={token}'
-        send_mail(
-            'Verify your ProjectNote account',
-            f'Welcome to ProjectNote. Verify your email within 24 hours: {verification_url}',
-            settings.DEFAULT_FROM_EMAIL,
-            [email],
-            fail_silently=False,
-        )
-        return Response({'verificationRequired': True, 'email': email}, status=status.HTTP_202_ACCEPTED)
-
-
-class VerifyEmailView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        try:
-            payload = signing.loads(str(request.data.get('token', '')), salt='projectnote-email-verification', max_age=60 * 60 * 24)
-            user = get_user_model().objects.get(id=payload['user_id'], is_active=True)
-        except (signing.BadSignature, signing.SignatureExpired, KeyError, get_user_model().DoesNotExist):
-            return Response({'detail': 'This verification link is invalid or expired.'}, status=status.HTTP_400_BAD_REQUEST)
-        profile, _ = AccountProfile.objects.get_or_create(user=user)
-        profile.email_verified = True
-        profile.save(update_fields=['email_verified'])
-        return Response({'verified': True, 'email': user.email})
+        AccountProfile.objects.create(user=user, email_verified=True)
+        return Response({'registered': True, 'email': email}, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
@@ -214,9 +188,7 @@ class LoginView(APIView):
         authenticated_user = authenticate(request=request._request, username=user.username if user else email, password=password)
         if authenticated_user is None:
             return Response({'detail': 'Email or password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
-        profile, _ = AccountProfile.objects.get_or_create(user=authenticated_user, defaults={'email_verified': False})
-        if not profile.email_verified:
-            return Response({'detail': 'Verify your email using the link we sent before signing in.'}, status=status.HTTP_403_FORBIDDEN)
+        AccountProfile.objects.get_or_create(user=authenticated_user, defaults={'email_verified': True})
         login(request._request, authenticated_user)
         return Response(user_session_payload(authenticated_user))
 

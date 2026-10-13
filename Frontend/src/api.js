@@ -22,7 +22,6 @@ API.interceptors.request.use(config => {
 export const fetchAuthCsrfAPI = () => API.get('/auth/csrf/');
 export const fetchAuthSessionAPI = () => API.get('/auth/session/');
 export const registerAPI = accountData => API.post('/auth/register/', accountData);
-export const verifyEmailAPI = token => API.post('/auth/verify-email/', { token });
 export const loginAPI = credentials => API.post('/auth/login/', credentials);
 export const googleLoginAPI = (credential, teamId) => API.post('/auth/google/', { credential, ...(teamId ? { teamId } : {}) });
 export const logoutAPI = () => API.delete('/auth/session/');
