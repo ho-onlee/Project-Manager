@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createProjectAPI, fetchProjects, generateProjectReportAPI, updateSharedCardAPI } from '../api';
+import { createProjectAPI, fetchGeminiSettingsAPI, fetchProjects, generateProjectReportAPI, updateSharedCardAPI } from '../api';
 import CardActions from './CardActions';
 import FloatingAction from './FloatingAction';
 import ProjectModal from './ProjectModal';
@@ -20,6 +20,7 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
   const [modalOpen, setModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [generatingReportId, setGeneratingReportId] = useState(null);
+  const [geminiConfigured, setGeminiConfigured] = useState(null);
   const [error, setError] = useState('');
   const { createdCardIds, highlightCreatedCard } = useCreatedCardAnimation('projects');
 
@@ -34,6 +35,11 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
   };
 
   useEffect(() => { loadProjects(); }, []);
+
+  useEffect(() => {
+    setGeminiConfigured(null);
+    fetchGeminiSettingsAPI().then(response => setGeminiConfigured(Boolean(response.data.configured))).catch(() => setGeminiConfigured(false));
+  }, [activeWorkspaceId]);
 
   const createProject = async values => {
     try {
@@ -161,7 +167,7 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
             <button className="text-action" type="button" onClick={() => setActiveProject(project)}>Open diagram <span aria-hidden="true">↗</span></button>
             <div className="project-card-actions">
               <button className="project-action-button" type="button" aria-label={`Download ${project.title} JSON`} title="Download project JSON" onClick={event => downloadProject(event, project)}>↓ Download JSON</button>
-              <button className="project-action-button generate-report-button" type="button" disabled={generatingReportId === project.id} onClick={event => generateReport(event, project)}>{generatingReportId === project.id ? 'Generating…' : '✧ Generate report'}</button>
+              <button className="project-action-button generate-report-button" type="button" disabled={generatingReportId === project.id || geminiConfigured === false} title={geminiConfigured === false ? 'Add a Gemini API key in Settings to enable reports.' : undefined} onClick={event => generateReport(event, project)}>{generatingReportId === project.id ? 'Generating…' : '✧ Generate report'}</button>
               {canManageAssignments && <ProjectAssigneePicker project={project} workspaceId={activeWorkspaceId} />}
             </div>
           </article>

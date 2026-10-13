@@ -72,7 +72,6 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
       const response = await fetchGeminiSettingsAPI();
       setSettings(response.data);
       setError('');
-      if (response.data.configured && !response.data.validated) await testKey();
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Gemini settings could not be reached. Start Django on port 8000.');
     } finally {
@@ -152,7 +151,6 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
     try {
       const response = await fetchGeminiSettingsAPI();
       setSettings(response.data);
-      if (response.data.configured && !response.data.validated) await testKey();
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Gemini settings could not be loaded for this workspace.');
     } finally {

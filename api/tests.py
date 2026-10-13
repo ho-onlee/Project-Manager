@@ -70,6 +70,9 @@ class ToolSkillAPITests(APITestCase):
 
 class ProjectReportGenerationTests(APITestCase):
 	def setUp(self):
+		validation_patch = patch('api.views.ensure_gemini_api_key_validated')
+		validation_patch.start()
+		self.addCleanup(validation_patch.stop)
 		self.project = Project.objects.create(workspace=self.workspace, title='Recipe planner', description='Plan weekly meals.')
 		self.node = ProjectNode.objects.create(project=self.project, title='Collect recipes', node_type='step')
 		self.url = reverse('project-generate-report', args=[self.project.id])

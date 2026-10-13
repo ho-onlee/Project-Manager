@@ -5,12 +5,13 @@ import binascii
 import re
 import urllib.error
 import urllib.request
+from datetime import timedelta
 
 from django.conf import settings
-from django.core.cache import cache
+from django.utils import timezone
 from cryptography.fernet import Fernet, InvalidToken
 import keyring
-from .models import Workspace, WorkspaceGeminiCredential
+from .models import GeminiKeyCheck, Workspace, WorkspaceGeminiCredential
 
 KEYRING_SERVICE = 'ProjectNote'
 KEYRING_USERNAME = 'gemini-api-key'
@@ -19,7 +20,7 @@ MAX_REPORT_IMAGE_COUNT = 8
 MAX_REPORT_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_REPORT_TOTAL_IMAGE_BYTES = 12 * 1024 * 1024
 REPORT_IMAGE_DATA_PATTERN = re.compile(r'^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$')
-GEMINI_KEY_VALIDATION_CACHE_PREFIX = 'gemini-key-validated:'
+GEMINI_KEY_VALIDATION_TTL = timedelta(days=1)
 
 
 class GeminiConfigurationError(Exception):
@@ -123,27 +124,43 @@ def get_gemini_key_source(workspace_id=None):
     return 'Environment variable'
 
 
-def _gemini_key_validation_cache_key(api_key):
-    fingerprint = hashlib.sha256(f'{api_key}\0{settings.GEMINI_MODEL}'.encode('utf-8')).hexdigest()
-    return f'{GEMINI_KEY_VALIDATION_CACHE_PREFIX}{fingerprint}'
+def _gemini_key_fingerprint(api_key):
+    return hashlib.sha256(f'{api_key}\0{settings.GEMINI_MODEL}'.encode('utf-8')).hexdigest()
 
 
 def is_gemini_api_key_validated(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
-    return bool(api_key and cache.get(_gemini_key_validation_cache_key(api_key)))
+    if not api_key:
+        return False
+    return GeminiKeyCheck.objects.filter(
+        fingerprint=_gemini_key_fingerprint(api_key),
+        checked_at__gt=timezone.now() - GEMINI_KEY_VALIDATION_TTL,
+    ).exists()
 
 
 def mark_gemini_api_key_validated(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         raise GeminiConfigurationError('Add a Gemini API key in Settings before testing it.')
-    cache.set(_gemini_key_validation_cache_key(api_key), True, timeout=None)
+    GeminiKeyCheck.objects.update_or_create(fingerprint=_gemini_key_fingerprint(api_key), defaults={'checked_at': timezone.now()})
 
 
 def clear_gemini_api_key_validation(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if api_key:
-        cache.delete(_gemini_key_validation_cache_key(api_key))
+        GeminiKeyCheck.objects.filter(fingerprint=_gemini_key_fingerprint(api_key)).delete()
+
+
+def ensure_gemini_api_key_validated(workspace_id=None):
+    # One provider test per key per day, shared by every member using that key.
+    if is_gemini_api_key_validated(workspace_id):
+        return
+    try:
+        test_gemini_api_key(workspace_id)
+    except GeminiGenerationError:
+        clear_gemini_api_key_validation(workspace_id)
+        raise
+    mark_gemini_api_key_validated(workspace_id)
 
 
 def test_gemini_api_key(workspace_id=None):

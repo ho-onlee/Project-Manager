@@ -18,7 +18,7 @@ from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceCardAssignment, WorkspaceGeminiCredential
-from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, generate_project_report, get_gemini_api_key, get_gemini_key_source, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
+from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, ensure_gemini_api_key_validated, generate_project_report, get_gemini_api_key, get_gemini_key_source, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
 from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
 from .models import Workspace, WorkspaceMembership
 from .workspaces import WorkspaceScopedViewSet, get_active_workspace
@@ -473,6 +473,7 @@ class ProjectViewSet(WorkspaceScopedViewSet):
             return Response({'report': cached_report['report'], 'cached': True})
         try:
             gemini_workspace = get_gemini_workspace(request)
+            ensure_gemini_api_key_validated(gemini_workspace.id)
             report = generate_project_report(project_json, report_prompt, workspace_id=gemini_workspace.id)
         except GeminiConfigurationError as error:
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

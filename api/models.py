@@ -76,6 +76,11 @@ class WorkspaceGeminiCredential(models.Model):
         return f'Gemini credential for {self.workspace}'
 
 
+class GeminiKeyCheck(models.Model):
+    fingerprint = models.CharField(max_length=64, primary_key=True)
+    checked_at = models.DateTimeField()
+
+
 class WorkspaceCardAssignment(models.Model):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='card_assignments')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='card_assignments')
