@@ -73,31 +73,32 @@ def _gemini_keyring_username(workspace_id=None):
     return f'{KEYRING_USERNAME}:{workspace_id}' if workspace_id else KEYRING_USERNAME
 
 
-def get_gemini_api_key(workspace_id=None):
+def _read_keyring_key(workspace_id=None):
+    # Containers have no OS credential store; treat that as "no stored key" and use the environment.
     try:
-        username = _gemini_keyring_username(workspace_id)
-        stored_key = keyring.get_password(KEYRING_SERVICE, username)
-        if stored_key:
-            return stored_key
-        if workspace_id:
-            workspace_type = Workspace.objects.filter(id=workspace_id).values_list('workspace_type', flat=True).first()
-            if workspace_type == Workspace.PERSONAL and not WorkspaceGeminiCredential.objects.filter(workspace_id=workspace_id).exists():
-                return settings.GEMINI_API_KEY
-            return ''
-        return settings.GEMINI_API_KEY
-    except Exception as error:
-        raise GeminiConfigurationError('The operating system credential store is unavailable.') from error
+        return keyring.get_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id))
+    except Exception:
+        return None
+
+
+def get_gemini_api_key(workspace_id=None):
+    stored_key = _read_keyring_key(workspace_id)
+    if stored_key:
+        return stored_key
+    if workspace_id:
+        workspace_type = Workspace.objects.filter(id=workspace_id).values_list('workspace_type', flat=True).first()
+        if workspace_type == Workspace.PERSONAL and not WorkspaceGeminiCredential.objects.filter(workspace_id=workspace_id).exists():
+            return settings.GEMINI_API_KEY
+        return ''
+    return settings.GEMINI_API_KEY
 
 
 def get_gemini_key_source(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         return None
-    try:
-        if keyring.get_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id)):
-            return 'Windows Credential Manager'
-    except Exception as error:
-        raise GeminiConfigurationError('The operating system credential store is unavailable.') from error
+    if _read_keyring_key(workspace_id):
+        return 'Windows Credential Manager'
     return 'Environment variable'
 
 
