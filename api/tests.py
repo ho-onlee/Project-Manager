@@ -260,7 +260,7 @@ class GeminiSettingsTests(APITestCase):
 	def test_failed_key_test_clears_verified_status(self, test_key, clear_validation):
 		response = self.client.post(reverse('gemini-settings-test'), {}, format='json')
 
-		self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 		clear_validation.assert_called_once_with(workspace_id=self.workspace.id)
 
 

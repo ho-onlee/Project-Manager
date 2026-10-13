@@ -593,7 +593,8 @@ class GeminiKeyTestView(APIView):
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except GeminiGenerationError as error:
             clear_gemini_api_key_validation(workspace_id=workspace.id if 'workspace' in locals() else None)
-            return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
+            # Not 502: Cloudflare replaces 502 bodies with its own error page, hiding the message.
+            return Response({'detail': str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload)
 
 
