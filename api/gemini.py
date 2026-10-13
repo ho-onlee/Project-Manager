@@ -8,6 +8,7 @@ import urllib.request
 
 from django.conf import settings
 from django.core.cache import cache
+from cryptography.fernet import Fernet, InvalidToken
 import keyring
 from .models import Workspace, WorkspaceGeminiCredential
 
@@ -74,15 +75,33 @@ def _gemini_keyring_username(workspace_id=None):
 
 
 def _read_keyring_key(workspace_id=None):
-    # Containers have no OS credential store; treat that as "no stored key" and use the environment.
+    # Containers have no OS credential store; treat that as "no stored key".
     try:
         return keyring.get_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id))
     except Exception:
         return None
 
 
+def _fernet():
+    secret = hashlib.sha256(f'projectnote-gemini-key:{settings.SECRET_KEY}'.encode('utf-8')).digest()
+    return Fernet(base64.urlsafe_b64encode(secret))
+
+
+def _read_database_key(workspace_id):
+    if not workspace_id:
+        return ''
+    encrypted = WorkspaceGeminiCredential.objects.filter(workspace_id=workspace_id).values_list('encrypted_key', flat=True).first()
+    if not encrypted:
+        return ''
+    try:
+        return _fernet().decrypt(encrypted.encode('ascii')).decode('utf-8')
+    except InvalidToken:
+        # SECRET_KEY changed since the key was saved.
+        return ''
+
+
 def get_gemini_api_key(workspace_id=None):
-    stored_key = _read_keyring_key(workspace_id)
+    stored_key = _read_database_key(workspace_id) or _read_keyring_key(workspace_id)
     if stored_key:
         return stored_key
     if workspace_id:
@@ -97,6 +116,8 @@ def get_gemini_key_source(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         return None
+    if _read_database_key(workspace_id):
+        return 'Encrypted database'
     if _read_keyring_key(workspace_id):
         return 'Windows Credential Manager'
     return 'Environment variable'
@@ -197,19 +218,18 @@ def _collect_report_images(nodes):
 
 
 def store_gemini_api_key(api_key, workspace_id=None):
-    try:
-        keyring.set_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id), api_key)
-    except Exception as error:
-        raise GeminiConfigurationError('The operating system credential store could not save the API key.') from error
+    if not workspace_id:
+        raise GeminiConfigurationError('Choose a workspace to store the API key in.')
+    encrypted = _fernet().encrypt(api_key.encode('utf-8')).decode('ascii')
+    WorkspaceGeminiCredential.objects.update_or_create(workspace_id=workspace_id, defaults={'encrypted_key': encrypted})
 
 
 def delete_gemini_api_key(workspace_id=None):
+    WorkspaceGeminiCredential.objects.filter(workspace_id=workspace_id).update(encrypted_key='')
     try:
         keyring.delete_password(KEYRING_SERVICE, _gemini_keyring_username(workspace_id))
-    except keyring.errors.PasswordDeleteError:
+    except Exception:
         pass
-    except Exception as error:
-        raise GeminiConfigurationError('The operating system credential store could not remove the API key.') from error
 
 
 def generate_project_report(project_json, report_prompt='', workspace_id=None):

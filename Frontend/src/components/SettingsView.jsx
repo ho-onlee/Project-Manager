@@ -281,7 +281,7 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
           <span className={`settings-status ${keyVerified ? 'is-configured' : ''}`}>{loading ? 'Checking…' : keyVerified ? 'Verified' : settings?.configured ? 'Needs test' : 'Not configured'}</span>
         </div>
         {availableGeminiWorkspaces.length > 1 && <label className="gemini-workspace-choice">Use Gemini key from<select value={geminiWorkspaceId} onChange={changeGeminiWorkspace}>{availableGeminiWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.type === 'team' ? 'Team' : 'Personal'}</option>)}</select></label>}
-        <p className="settings-description">Reports use {settings?.model || 'gemini-3.5-flash-lite'}. Project JSON is sent to Google when generating a report. Your API key is saved in Windows Credential Manager and is never shown after saving.</p>
+        <p className="settings-description">Reports use {settings?.model || 'gemini-3.5-flash-lite'}. Project JSON is sent to Google when generating a report. Your API key is stored encrypted on the server and is never shown after saving.</p>
         {settings?.source && <p className="settings-source">Key source: {settings.source}</p>}
         {settings?.configured && <p className="settings-source">Testing sends one short prompt to verify Gemini access.</p>}
         {keyVerified && !showKeyInput && <div className="gemini-key-actions">

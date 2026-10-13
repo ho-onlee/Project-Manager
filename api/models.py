@@ -69,6 +69,7 @@ class AccountProfile(models.Model):
 
 class WorkspaceGeminiCredential(models.Model):
     workspace = models.OneToOneField(Workspace, primary_key=True, on_delete=models.CASCADE, related_name='gemini_credential')
+    encrypted_key = models.TextField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
