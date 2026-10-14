@@ -215,7 +215,7 @@ html, body, #root {
 .image-preview-toolbar { opacity: .5; transition: opacity .15s ease; }.image-preview-toolbar:hover { opacity: 1; }
 .image-preview-toolbar { gap: 6px; white-space: nowrap; }.image-preview-toolbar button { flex: 0 0 30px; padding: 0; }.image-preview-toolbar button:nth-child(2) { width: 62px; flex-basis: 62px; font: 13px 'DM Mono', monospace; }.image-preview-toolbar span { flex: 0 0 42px; }
 .catalog-grid { width: 100%; max-width: none; }
-.tool-card { width: 380px; height: 460px; min-height: 460px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; }
+.tool-card { width: 380px; height: auto; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; }
 .tool-card .skill-list { max-width: 100%; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; margin-top: auto; flex-shrink: 0; scrollbar-width: none; }
 .tool-card .skill-list::-webkit-scrollbar, .skill-card .linked-tools::-webkit-scrollbar { display: none; }
 .tool-card .skill-chip, .skill-card .linked-tools span { flex: 0 0 auto; white-space: nowrap; }
