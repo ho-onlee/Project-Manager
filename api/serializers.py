@@ -214,6 +214,10 @@ class GenerateProjectReportSerializer(serializers.Serializer):
 class GeminiSettingsSerializer(serializers.Serializer):
     api_key = serializers.CharField(min_length=20, max_length=512, trim_whitespace=True, write_only=True)
 
+
+class GeminiModelSerializer(serializers.Serializer):
+    model = serializers.RegexField(r'^[A-Za-z0-9._-]{0,100}$', allow_blank=True, trim_whitespace=True)
+
 class NodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node

@@ -71,6 +71,7 @@ export const generateProjectReportAPI = (id, projectJson, prompt) => API.post(`/
 export const fetchGeminiSettingsAPI = () => API.get('/settings/gemini/');
 export const saveGeminiSettingsAPI = apiKey => API.post('/settings/gemini/', { api_key: apiKey });
 export const deleteGeminiSettingsAPI = () => API.delete('/settings/gemini/');
+export const saveGeminiModelAPI = model => API.patch('/settings/gemini/', { model });
 export const testGeminiSettingsAPI = () => API.post('/settings/gemini/test/');
 export const createProjectNodeAPI = nodeData => API.post('/project-nodes/', nodeData);
 export const updateProjectNodeAPI = (id, nodeData) => API.patch(`/project-nodes/${id}/`, nodeData);

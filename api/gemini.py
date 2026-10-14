@@ -124,8 +124,16 @@ def get_gemini_key_source(workspace_id=None):
     return 'Environment variable'
 
 
-def _gemini_key_fingerprint(api_key):
-    return hashlib.sha256(f'{api_key}\0{settings.GEMINI_MODEL}'.encode('utf-8')).hexdigest()
+def get_gemini_model(workspace_id=None):
+    if workspace_id:
+        custom_model = Workspace.objects.filter(id=workspace_id).values_list('gemini_model', flat=True).first()
+        if custom_model:
+            return custom_model
+    return settings.GEMINI_MODEL
+
+
+def _gemini_key_fingerprint(api_key, workspace_id=None):
+    return hashlib.sha256(f'{api_key}\0{get_gemini_model(workspace_id)}'.encode('utf-8')).hexdigest()
 
 
 def is_gemini_api_key_validated(workspace_id=None):
@@ -133,7 +141,7 @@ def is_gemini_api_key_validated(workspace_id=None):
     if not api_key:
         return False
     return GeminiKeyCheck.objects.filter(
-        fingerprint=_gemini_key_fingerprint(api_key),
+        fingerprint=_gemini_key_fingerprint(api_key, workspace_id),
         checked_at__gt=timezone.now() - GEMINI_KEY_VALIDATION_TTL,
     ).exists()
 
@@ -142,13 +150,13 @@ def mark_gemini_api_key_validated(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if not api_key:
         raise GeminiConfigurationError('Add a Gemini API key in Settings before testing it.')
-    GeminiKeyCheck.objects.update_or_create(fingerprint=_gemini_key_fingerprint(api_key), defaults={'checked_at': timezone.now()})
+    GeminiKeyCheck.objects.update_or_create(fingerprint=_gemini_key_fingerprint(api_key, workspace_id), defaults={'checked_at': timezone.now()})
 
 
 def clear_gemini_api_key_validation(workspace_id=None):
     api_key = get_gemini_api_key(workspace_id)
     if api_key:
-        GeminiKeyCheck.objects.filter(fingerprint=_gemini_key_fingerprint(api_key)).delete()
+        GeminiKeyCheck.objects.filter(fingerprint=_gemini_key_fingerprint(api_key, workspace_id)).delete()
 
 
 def ensure_gemini_api_key_validated(workspace_id=None):
@@ -173,7 +181,7 @@ def test_gemini_api_key(workspace_id=None):
         'generationConfig': {'temperature': 0, 'maxOutputTokens': 16},
     }).encode('utf-8')
     request = urllib.request.Request(
-        f'https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent',
+        f'https://generativelanguage.googleapis.com/v1beta/models/{get_gemini_model(workspace_id)}:generateContent',
         data=request_body,
         headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
         method='POST',
@@ -287,7 +295,7 @@ def generate_project_report(project_json, report_prompt='', workspace_id=None):
         'generationConfig': {'temperature': 0.2, 'maxOutputTokens': 8192},
     }).encode('utf-8')
     request = urllib.request.Request(
-        f'https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent',
+        f'https://generativelanguage.googleapis.com/v1beta/models/{get_gemini_model(workspace_id)}:generateContent',
         data=request_body,
         headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
         method='POST',

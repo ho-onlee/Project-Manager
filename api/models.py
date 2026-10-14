@@ -14,6 +14,7 @@ class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150)
     workspace_type = models.CharField(max_length=12, choices=TYPES)
+    gemini_model = models.CharField(max_length=100, blank=True, default='')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_workspaces')
     created_at = models.DateTimeField(auto_now_add=True)
 

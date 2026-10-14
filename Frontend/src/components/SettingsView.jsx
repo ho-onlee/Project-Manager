@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
+import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiModelAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
 import { DEFAULT_REPORT_PROMPT, REPORT_PROMPT_STORAGE_KEY, readReportPrompt } from '../reportPrompt';
 import { readReviewReportData, saveReviewReportData } from '../accessibilitySettings';
 import TeamAccessPanel from './TeamAccessPanel';
@@ -8,6 +8,7 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
   const [apiKey, setApiKey] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [settings, setSettings] = useState(null);
+  const [modelInput, setModelInput] = useState('');
   const [geminiWorkspaceId, setGeminiWorkspaceId] = useState(userPreferences?.geminiWorkspaceId || session?.geminiWorkspaceId || activeWorkspaceId || '');
   const autoTestStarted = useRef(false);
   const [loading, setLoading] = useState(true);
@@ -84,6 +85,25 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
     autoTestStarted.current = true;
     loadSettings();
   }, []);
+
+  useEffect(() => { setModelInput(settings?.model || ''); }, [settings?.model]);
+
+  const saveModel = async event => {
+    event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setError('');
+    try {
+      const trimmed = modelInput.trim();
+      const response = await saveGeminiModelAPI(trimmed === settings?.defaultModel ? '' : trimmed);
+      setSettings(response.data);
+      setMessage('Model updated. Test the key to verify it works with this model.');
+    } catch (requestError) {
+      setError(requestError.response?.data?.model?.[0] || requestError.response?.data?.detail || 'Model could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const saveKey = async event => {
     event.preventDefault();
@@ -281,6 +301,14 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
         {availableGeminiWorkspaces.length > 1 && <label className="gemini-workspace-choice">Use Gemini key from<select value={geminiWorkspaceId} onChange={changeGeminiWorkspace}>{availableGeminiWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name} · {workspace.type === 'team' ? 'Team' : 'Personal'}</option>)}</select></label>}
         <p className="settings-description">Reports use {settings?.model || 'gemini-3.5-flash-lite'}. Project JSON is sent to Google when generating a report. Your API key is stored encrypted on the server and is never shown after saving.</p>
         {settings?.source && <p className="settings-source">Key source: {settings.source}</p>}
+        {canManageGeminiKey && <form className="settings-key-form" onSubmit={saveModel}>
+          <label htmlFor="gemini-model">Gemini model</label>
+          <div className="settings-key-row">
+            <input id="gemini-model" list="gemini-model-options" maxLength="100" pattern="[A-Za-z0-9._\-]+" value={modelInput} onChange={event => setModelInput(event.target.value)} placeholder={settings?.defaultModel || 'gemini-2.5-flash'} required />
+            <datalist id="gemini-model-options"><option value="gemini-2.5-flash" /><option value="gemini-2.5-flash-lite" /><option value="gemini-2.5-pro" /></datalist>
+            <button className="primary-button" type="submit" disabled={saving || loading || !modelInput.trim() || modelInput.trim() === settings?.model}>Save model</button>
+          </div>
+        </form>}
         {settings?.configured && <p className="settings-source">Testing sends one short prompt to verify Gemini access.</p>}
         {keyVerified && !showKeyInput && <div className="gemini-key-actions">
           <span className="settings-message">API key verified and ready.</span>

@@ -224,11 +224,11 @@ html, body, #root {
 .tool-card h2, .tool-card > p { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-box-orient: vertical; }
 .tool-card h2 { -webkit-line-clamp: 1; }
 .tool-card > p { -webkit-line-clamp: 2; }
-.tool-features { height: 158px; overflow: hidden; }
+.tool-features { height: auto; overflow: hidden; }
 .tool-features li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card .skill-chip, .skill-card .linked-tools span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
 .tool-card { overflow: visible; }
-.tool-card .tool-features { max-height: 160px; overflow-y: auto; }
+.tool-card .tool-features { max-height: 160px; height: auto; overflow-y: auto; }
 @media (min-width: 801px) { .app-shell.nav-is-collapsed .catalog-view { padding-left: 96px; } }
 .card-visibility-tabs { display: flex; gap: 4px; width: fit-content; margin: -22px 0 24px; padding: 4px; background: rgba(27, 34, 27, .72); border: 1px solid var(--line); border-radius: 7px; }
 .card-visibility-tabs button { display: flex; gap: 8px; align-items: center; padding: 7px 10px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font: 11px 'DM Mono', monospace; cursor: pointer; }

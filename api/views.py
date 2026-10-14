@@ -18,8 +18,8 @@ from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceCardAssignment, WorkspaceGeminiCredential
-from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, ensure_gemini_api_key_validated, generate_project_report, get_gemini_api_key, get_gemini_key_source, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
-from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
+from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, ensure_gemini_api_key_validated, generate_project_report, get_gemini_api_key, get_gemini_key_source, get_gemini_model, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
+from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GeminiModelSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
 from .models import Workspace, WorkspaceMembership
 from .workspaces import WorkspaceScopedViewSet, get_active_workspace
 
@@ -33,7 +33,8 @@ def gemini_settings_payload(workspace_id, source=None):
     return {
         'configured': source is not None,
         'validated': is_gemini_api_key_validated(workspace_id),
-        'model': settings.GEMINI_MODEL,
+        'model': get_gemini_model(workspace_id),
+        'defaultModel': settings.GEMINI_MODEL,
         'source': source,
         'workspaceId': str(workspace_id),
     }
@@ -570,6 +571,14 @@ class GeminiSettingsView(APIView):
             WorkspaceGeminiCredential.objects.get_or_create(workspace=workspace)
         except GeminiConfigurationError as error:
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(gemini_settings_payload(workspace.id))
+
+    def patch(self, request):
+        serializer = GeminiModelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        workspace = get_gemini_workspace(request, require_admin=True)
+        workspace.gemini_model = serializer.validated_data['model']
+        workspace.save(update_fields=['gemini_model'])
         return Response(gemini_settings_payload(workspace.id))
 
     def delete(self, request):
