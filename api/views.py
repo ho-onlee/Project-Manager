@@ -127,8 +127,8 @@ class UserPreferencesView(APIView):
                     return Response({api_field: ['Invalid color scheme id.']}, status=status.HTTP_400_BAD_REQUEST)
                 if api_field == 'accessibility' and (not isinstance(value, dict) or len(value) > 10):
                     return Response({api_field: ['Invalid accessibility settings.']}, status=status.HTTP_400_BAD_REQUEST)
-                if api_field == 'reportPrompt' and (not isinstance(value, str) or len(value) > 4000):
-                    return Response({api_field: ['Report prompt must be 4000 characters or fewer.']}, status=status.HTTP_400_BAD_REQUEST)
+                if api_field == 'reportPrompt' and (not isinstance(value, str) or len(value) > 12000):
+                    return Response({api_field: ['Report prompt must be 12000 characters or fewer.']}, status=status.HTTP_400_BAD_REQUEST)
                 if api_field == 'reviewReportData' and not isinstance(value, bool):
                     return Response({api_field: ['Expected a boolean value.']}, status=status.HTTP_400_BAD_REQUEST)
                 setattr(preferences, model_field, value)

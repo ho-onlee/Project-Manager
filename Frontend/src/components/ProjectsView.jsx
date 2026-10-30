@@ -8,11 +8,9 @@ import ProjectReportReader from './ProjectReportReader';
 import ReportDataPreview from './ReportDataPreview';
 import ProjectAssigneePicker from './ProjectAssigneePicker';
 import CatalogSearch from './CatalogSearch';
-import { readReportPrompt } from '../reportPrompt';
-import { readReviewReportData } from '../accessibilitySettings';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
 
-export default function ProjectsView({ teams = [], activeWorkspaceId, canManageAssignments = false }) {
+export default function ProjectsView({ teams = [], activeWorkspaceId, canManageAssignments = false, reportPrompt, reviewReportData = true }) {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
   const [activeReport, setActiveReport] = useState(null);
@@ -134,8 +132,8 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
 
   const generateReport = (event, project) => {
     event.stopPropagation();
-    const payload = { project_json: projectToReportJSON(project), prompt: readReportPrompt() };
-    if (readReviewReportData()) {
+    const payload = { project_json: projectToReportJSON(project), prompt: reportPrompt };
+    if (reviewReportData) {
       setPendingReport({ project, payload });
       return;
     }

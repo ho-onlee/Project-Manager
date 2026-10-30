@@ -201,7 +201,7 @@ class ProjectGroupRelationshipSerializer(serializers.ModelSerializer):
 
 class GenerateProjectReportSerializer(serializers.Serializer):
     project_json = serializers.JSONField()
-    prompt = serializers.CharField(max_length=4000, required=False, allow_blank=True, default='')
+    prompt = serializers.CharField(max_length=12000, required=False, allow_blank=True, default='')
 
     def validate_project_json(self, value):
         if not isinstance(value, dict) or not isinstance(value.get('project'), dict):
