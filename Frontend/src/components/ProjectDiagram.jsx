@@ -234,6 +234,19 @@ export default function ProjectDiagram({ project, onBack }) {
     setSelectedRelationshipId(null);
   };
 
+  useEffect(() => {
+    const deleteOnKey = event => {
+      if (event.key !== 'Delete') return;
+      const target = event.target;
+      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
+      if (selectedRelationshipId) deleteSelectedRelationship();
+      else if (selectedIds.size > 1) deleteSelectedNodes();
+      else if (selectedId) deleteSelected();
+    };
+    window.addEventListener('keydown', deleteOnKey);
+    return () => window.removeEventListener('keydown', deleteOnKey);
+  });
+
   const moveNode = event => {
     if (!draggingId || isMobileDiagram) return;
     const point = getWorldPoint(event);

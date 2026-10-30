@@ -157,6 +157,16 @@ class ProjectNodeOrderingTests(APITestCase):
 		self.assertEqual(root_json['order'], 0)
 
 
+class ProjectDefaultNodeTests(APITestCase):
+	def test_new_project_gets_default_text_nodes(self):
+		response = self.client.post(reverse('project-list'), {'title': 'Fresh'}, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		nodes = ProjectNode.objects.filter(project_id=response.data['id'], node_type='text')
+		self.assertEqual(sorted(node.title for node in nodes), ['Goal', 'Location', 'Participants'])
+		self.assertEqual(ProjectNode.objects.filter(project_id=response.data['id'], is_project_root=True).count(), 1)
+
+
 class ProjectGroupAPITests(APITestCase):
 	def setUp(self):
 		self.project = Project.objects.create(workspace=self.workspace, title='Field survey', description='Collect observations.')

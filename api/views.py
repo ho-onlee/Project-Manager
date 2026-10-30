@@ -22,6 +22,7 @@ from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInput
 from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GeminiModelSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
 from .models import Workspace, WorkspaceMembership
 from .workspaces import WorkspaceScopedViewSet, get_active_workspace
+from .project_defaults import create_default_text_nodes
 
 
 def invalidate_project_report_cache(project_id):
@@ -448,6 +449,7 @@ class ProjectViewSet(WorkspaceScopedViewSet):
     def perform_create(self, serializer):
         project = serializer.save(workspace=self.get_active_workspace())
         ProjectNode.objects.create(project=project, title=project.title, description=project.description, node_type='project', is_project_root=True, order=0, x=320, y=220)
+        create_default_text_nodes(project)
 
     def perform_update(self, serializer):
         super().perform_update(serializer)
