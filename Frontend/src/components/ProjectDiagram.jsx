@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import useDeleteKey from './useDeleteKey';
 import { createProjectNodeAPI, createProjectRelationshipAPI, deleteProjectNodeAPI, deleteProjectRelationshipAPI, fetchEnvironments, fetchSkills, fetchTools, updateProjectAPI, updateProjectNodeAPI } from '../api';
 import { calculateProjectNodeOrders } from '../projectNodeOrder';
 
@@ -234,17 +235,10 @@ export default function ProjectDiagram({ project, onBack }) {
     setSelectedRelationshipId(null);
   };
 
-  useEffect(() => {
-    const deleteOnKey = event => {
-      if (event.key !== 'Delete') return;
-      const target = event.target;
-      if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return;
-      if (selectedRelationshipId) deleteSelectedRelationship();
-      else if (selectedIds.size > 1) deleteSelectedNodes();
-      else if (selectedId) deleteSelected();
-    };
-    window.addEventListener('keydown', deleteOnKey);
-    return () => window.removeEventListener('keydown', deleteOnKey);
+  useDeleteKey(() => {
+    if (selectedRelationshipId) deleteSelectedRelationship();
+    else if (selectedIds.size > 1) deleteSelectedNodes();
+    else if (selectedId) deleteSelected();
   });
 
   const moveNode = event => {
