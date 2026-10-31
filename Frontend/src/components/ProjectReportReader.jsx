@@ -11,7 +11,7 @@ function reportFileName(projectTitle) {
   return `${name || 'project'}-report.md`;
 }
 
-export default function ProjectReportReader({ projectTitle, markdown, onBack }) {
+export default function ProjectReportReader({ projectTitle, markdown, generatedAt, isRegenerating = false, generationError = '', onBack, onRegenerate }) {
   const [message, setMessage] = useState('');
 
   const downloadReport = () => {
@@ -32,6 +32,17 @@ export default function ProjectReportReader({ projectTitle, markdown, onBack }) 
     }
   };
 
+  if (isRegenerating) {
+    return (
+      <section className="catalog-view report-reader report-generating" role="status" aria-live="polite" aria-busy="true">
+        <div className="report-loading-content">
+          <span className="report-spinner" aria-hidden="true" />
+          <span>Regenerating report…</span>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="catalog-view report-reader">
       <button className="report-float-button report-back-button" type="button" aria-label="Back to projects" title="Back to projects" onClick={onBack}>
@@ -45,7 +56,12 @@ export default function ProjectReportReader({ projectTitle, markdown, onBack }) 
           <span aria-hidden="true">↓</span>
         </button>
       </div>
+      <div className="report-reader-meta">
+        <time dateTime={generatedAt}>{generatedAt ? new Date(generatedAt).toLocaleString() : ''}</time>
+        <button className="report-regenerate-button" type="button" onClick={onRegenerate}>↻ Regenerate</button>
+      </div>
       {message && <p className="report-reader-message" role="status">{message}</p>}
+      {generationError && <p className="report-reader-error" role="alert">{generationError}</p>}
       <article className="report-document">
         <p className="eyebrow">Generated project report</p>
         <h1>{projectTitle}</h1>

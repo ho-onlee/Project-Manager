@@ -163,7 +163,7 @@ class ProjectDefaultNodeTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		nodes = ProjectNode.objects.filter(project_id=response.data['id'], node_type='text')
-		self.assertEqual(sorted(node.title for node in nodes), ['Goal', 'Location', 'Participants'])
+		self.assertEqual(sorted(node.title for node in nodes), ['Goal', 'Location', 'Participants', 'Test Subject'])
 		self.assertEqual(ProjectNode.objects.filter(project_id=response.data['id'], is_project_root=True).count(), 1)
 
 
@@ -538,6 +538,7 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(response.data['selectedColorSchemeId'], 'tideline')
+		self.assertEqual(response.data['reportPrompt'], 'Focus on open risks.')
 		self.assertFalse(response.data['reviewReportData'])
 		self.client.force_authenticate(user=None)
 		self.assertEqual(self.client.get(reverse('user-preferences')).status_code, status.HTTP_403_FORBIDDEN)
@@ -626,6 +627,25 @@ class GeminiClientTests(SimpleTestCase):
 		self.assertEqual(request.headers['X-goog-api-key'], 'test-key')
 		self.assertIn('Test project', request_data['contents'][0]['parts'][0]['text'])
 		self.assertIn('Focus on milestones.', request_data['contents'][0]['parts'][0]['text'])
+
+	@override_settings(GEMINI_API_KEY='test-key')
+	@patch('api.gemini.urllib.request.urlopen')
+	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
+	def test_generate_project_report_renders_full_prompt_template(self, get_api_key, urlopen):
+		urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
+			'candidates': [{'content': {'parts': [{'text': '# Report'}]}}],
+		}).encode()
+		project_json = {'project': {'title': 'Custom prompt project'}, 'nodes': [], 'relationships': []}
+		prompt_template = 'Write this report your way. Images: {{IMAGE_CATALOG}}\nData: {{PROJECT_JSON}}'
+
+		generate_project_report(project_json, prompt_template)
+
+		prompt = json.loads(urlopen.call_args.args[0].data)['contents'][0]['parts'][0]['text']
+		self.assertEqual(
+			prompt,
+			'Write this report your way. Images: No embedded images were supplied.\nData: '
+			+ json.dumps(project_json, ensure_ascii=False, indent=2),
+		)
 
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.urllib.request.urlopen')

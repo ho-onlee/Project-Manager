@@ -122,7 +122,13 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
     setError('');
     try {
       const response = await generateProjectReportAPI(project.id, payload.project_json, payload.prompt);
-      setActiveReport({ projectTitle: project.title, markdown: placeReportImages(response.data.report, payload.project_json) });
+      setActiveReport({
+        projectTitle: project.title,
+        markdown: placeReportImages(response.data.report, payload.project_json),
+        generatedAt: new Date().toISOString(),
+        project,
+        payload,
+      });
     } catch (requestError) {
       setError(requestError.response?.data?.detail || 'Report generation failed. Check Settings and try again.');
     } finally {
@@ -144,7 +150,13 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
   const filteredProjects = projects.filter(project => !query || [project.title, project.description].some(value => String(value || '').toLowerCase().includes(query)));
 
   if (activeReport) {
-    return <ProjectReportReader {...activeReport} onBack={() => setActiveReport(null)} />;
+    return <ProjectReportReader
+      {...activeReport}
+      isRegenerating={Boolean(generatingReportId)}
+      generationError={error}
+      onBack={() => setActiveReport(null)}
+      onRegenerate={() => sendReportRequest(activeReport.project, activeReport.payload)}
+    />;
   }
 
   if (activeProject) {

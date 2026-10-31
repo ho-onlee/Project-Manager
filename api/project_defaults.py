@@ -4,6 +4,7 @@ DEFAULT_TEXT_NODES = (
     {'title': 'Goal', 'description': '', 'x': 20, 'y': 80},
     {'title': 'Participants', 'description': '', 'x': 20, 'y': 220},
     {'title': 'Location', 'description': '', 'x': 20, 'y': 360},
+    {'title': 'Test Subject', 'description': '', 'x': 20, 'y': 500},
 )
 
 
