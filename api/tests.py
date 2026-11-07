@@ -7,10 +7,10 @@ from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, override_settings
 from rest_framework import status
-from rest_framework.test import APITestCase as DRFAPITestCase
+from rest_framework.test import APIClient, APITestCase as DRFAPITestCase
 
 from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, generate_project_report, project_report_fingerprint, test_gemini_api_key
-from .models import AccountProfile, Project, ProjectGroup, ProjectGroupItem, ProjectNode, Skill, Tool, Workspace, WorkspaceCardAssignment, WorkspaceMembership
+from .models import AccountProfile, Project, ProjectGroup, ProjectGroupItem, ProjectNode, ProjectRelationship, Skill, Tool, Workspace, WorkspaceCardAssignment, WorkspaceMembership
 
 
 class APITestCase(DRFAPITestCase):
@@ -82,17 +82,51 @@ class ProjectReportGenerationTests(APITestCase):
 			'relationships': [],
 		}
 
+	def make_plan_report(self):
+		return json.dumps({
+			'format': 'projectnote-research-plan-v1',
+			'project_id': str(self.project.id),
+			'title': 'Recipe research plan',
+			'summary': 'Compare meal-planning approaches.',
+			'ready_to_apply': True,
+			'questions': [],
+			'nodes': [{'key': 'phase-1', 'title': 'Gather recipes', 'node_type': 'step', 'parent_key': None, 'resource_ids': []}],
+			'relationships': [],
+		})
+
 	@patch('api.views.generate_project_report', return_value='# Recipe planner report')
 	def test_generate_report_passes_exported_project_json(self, generate_report):
+		generate_report.return_value = self.make_plan_report()
 		response = self.client.post(self.url, {'project_json': self.project_json, 'prompt': 'Focus on meal planning.'}, format='json')
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
-		self.assertEqual(response.data, {'report': '# Recipe planner report', 'cached': False})
+		self.assertEqual(json.loads(response.data['report'])['title'], 'Recipe research plan')
+		self.assertFalse(response.data['cached'])
+		self.assertTrue(response.data['planVersionId'])
+		self.assertTrue(response.data['createdAt'])
 		self.assertEqual(generate_report.call_args.args[0], self.project_json)
 		self.assertEqual(generate_report.call_args.args[1], 'Focus on meal planning.')
+		history = self.client.get(reverse('project-research-plans', args=[self.project.id]))
+		self.assertEqual(history.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(history.data), 1)
+		self.assertEqual(history.data[0]['source_project_json']['project']['id'], str(self.project.id))
+		self.assertEqual(history.data[0]['prompt'], 'Focus on meal planning.')
+
+	@patch('api.views.generate_project_report')
+	def test_forced_regeneration_creates_a_new_plan_version(self, generate_report):
+		generate_report.return_value = self.make_plan_report()
+		first = self.client.post(self.url, {'project_json': self.project_json}, format='json')
+		second = self.client.post(self.url, {'project_json': self.project_json, 'force': True}, format='json')
+
+		self.assertEqual(first.status_code, status.HTTP_200_OK)
+		self.assertEqual(second.status_code, status.HTTP_200_OK)
+		self.assertNotEqual(first.data['planVersionId'], second.data['planVersionId'])
+		self.assertEqual(generate_report.call_count, 2)
+		self.assertEqual(len(self.client.get(reverse('project-research-plans', args=[self.project.id])).data), 2)
 
 	@patch('api.views.generate_project_report', return_value='# Recipe planner report')
 	def test_generated_report_is_reused_until_project_is_updated(self, generate_report):
+		generate_report.return_value = self.make_plan_report()
 		first_response = self.client.post(self.url, {'project_json': self.project_json}, format='json')
 		cached_response = self.client.post(self.url, {'project_json': self.project_json}, format='json')
 
@@ -129,6 +163,83 @@ class ProjectReportGenerationTests(APITestCase):
 
 		self.assertEqual(response.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 		self.assertEqual(response.data['detail'], 'Project is too large.')
+
+
+class ProjectPlanImportTests(APITestCase):
+	def setUp(self):
+		self.project = Project.objects.create(workspace=self.workspace, title='Field study', description='Understand local water quality.')
+		self.root = ProjectNode.objects.create(project=self.project, title=self.project.title, node_type='project', is_project_root=True)
+		self.url = reverse('project-apply-plan', args=[self.project.id])
+		self.plan = {
+			'format': 'projectnote-research-plan-v1',
+			'project_id': str(self.project.id),
+			'title': 'Water quality study',
+			'summary': 'Compare water quality at selected locations.',
+			'nodes': [
+				{'key': 'task-1', 'title': 'Record readings', 'description': 'Use the selected meter.', 'node_type': 'step', 'parent_key': 'phase-1'},
+				{'key': 'phase-2', 'title': 'Compare results', 'description': 'Review the readings.', 'node_type': 'step', 'parent_key': None},
+				{'key': 'phase-1', 'title': 'Collect samples', 'description': 'Collect at each site.', 'node_type': 'step', 'parent_key': None},
+			],
+			'relationships': [{'source_key': 'phase-1', 'target_key': 'phase-2', 'label': 'next'}],
+		}
+
+	def test_apply_plan_creates_nested_nodes_and_relationships(self):
+		response = self.client.post(self.url, self.plan, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(response.data['nodeCount'], 3)
+		self.assertEqual(response.data['relationshipCount'], 1)
+		phase = ProjectNode.objects.get(project=self.project, title='Collect samples')
+		task = ProjectNode.objects.get(project=self.project, title='Record readings')
+		self.assertEqual(phase.parent, self.root)
+		self.assertEqual(task.parent, phase)
+		self.assertTrue(ProjectRelationship.objects.filter(project=self.project, source=phase, target__title='Compare results', label='next').exists())
+
+	def test_apply_plan_rejects_unknown_relationship_keys_without_writing_nodes(self):
+		invalid_plan = {
+			**self.plan,
+			'relationships': [{'source_key': 'phase-1', 'target_key': 'unknown', 'label': 'next'}],
+		}
+
+		response = self.client.post(self.url, invalid_plan, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertFalse(ProjectNode.objects.filter(project=self.project, title='Collect samples').exists())
+
+	def test_apply_plan_cannot_be_applied_twice(self):
+		first_response = self.client.post(self.url, self.plan, format='json')
+		second_response = self.client.post(self.url, self.plan, format='json')
+
+		self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(second_response.status_code, status.HTTP_409_CONFLICT)
+		self.assertEqual(ProjectNode.objects.filter(project=self.project, title__in=['Collect samples', 'Compare results', 'Record readings']).count(), 3)
+
+	def test_apply_plan_requires_clarifications_to_be_answered(self):
+		plan = {
+			**self.plan,
+			'ready_to_apply': False,
+			'questions': [{'key': 'site', 'question': 'Which site?', 'reason': 'Location is missing.'}],
+		}
+
+		response = self.client.post(self.url, plan, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+		self.assertFalse(ProjectNode.objects.filter(project=self.project, title='Collect samples').exists())
+
+	def test_apply_plan_maps_selected_resources_to_plan_nodes(self):
+		tool = ProjectNode.objects.create(project=self.project, parent=self.root, title='Water meter', node_type='tool')
+		plan = {
+			**self.plan,
+			'nodes': [
+				{**self.plan['nodes'][0], 'resource_ids': [str(tool.id)]},
+				*self.plan['nodes'][1:],
+			],
+		}
+
+		response = self.client.post(self.url, plan, format='json')
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		self.assertTrue(ProjectRelationship.objects.filter(project=self.project, source=tool, target__title='Record readings', label='uses').exists())
 
 
 class ProjectNodeOrderingTests(APITestCase):
@@ -283,6 +394,35 @@ class AccountAndWorkspaceTests(DRFAPITestCase):
 		self.workspace = Workspace.objects.create(name='Account test personal', workspace_type=Workspace.PERSONAL, created_by=self.user)
 		WorkspaceMembership.objects.create(workspace=self.workspace, user=self.user, role=WorkspaceMembership.OWNER)
 		self.client.force_authenticate(user=self.user)
+
+	def test_anonymous_registration_requires_csrf(self):
+		client = APIClient(enforce_csrf_checks=True)
+		register_url = reverse('auth-register')
+		registration = {
+			'email': 'csrf-user@example.com',
+			'name': 'CSRF User',
+			'password': 'M0re-Secure!Account-954',
+		}
+		response = client.post(register_url, registration, format='json')
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+		csrf_response = client.get(reverse('auth-csrf'))
+		response = client.post(
+			register_url,
+			registration,
+			format='json',
+			HTTP_X_CSRFTOKEN=csrf_response.data['csrfToken'],
+		)
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+	def test_password_login_is_rate_limited(self):
+		cache.clear()
+		self.addCleanup(cache.clear)
+		login_url = reverse('auth-login')
+		responses = [self.client.post(login_url, {'email': self.user.email, 'password': 'incorrect'}, format='json') for _ in range(11)]
+
+		self.assertTrue(all(response.status_code == status.HTTP_400_BAD_REQUEST for response in responses[:10]))
+		self.assertEqual(responses[-1].status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 	def test_registration_creates_personal_workspace_and_pending_team_request(self):
 		team = Workspace.objects.create(name='Research team', workspace_type=Workspace.TEAM)
@@ -613,27 +753,50 @@ class GeminiClientTests(SimpleTestCase):
 	@override_settings(GEMINI_API_KEY='test-key', GEMINI_MODEL='gemini-test-model')
 	@patch('api.gemini.urllib.request.urlopen')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
-	def test_generate_project_report_sends_project_data_and_reads_markdown(self, get_api_key, urlopen):
+	def test_generate_project_report_sends_project_data_and_reads_plan_json(self, get_api_key, urlopen):
 		urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
-			'candidates': [{'content': {'parts': [{'text': '# Report'}]}}],
+			'candidates': [{'content': {'parts': [{'text': json.dumps({
+				'format': 'projectnote-research-plan-v1',
+				'project_id': '00000000-0000-0000-0000-000000000001',
+				'title': 'Test plan',
+				'summary': 'A focused plan.',
+				'ready_to_apply': True,
+				'questions': [],
+				'human_subjects': False,
+				'ethics_checks': [],
+				'nodes': [{'key': 'phase-1', 'title': 'First phase'}],
+				'relationships': [],
+			})}]}}],
 		}).encode()
 
-		report = generate_project_report({'project': {'title': 'Test project'}}, 'Focus on milestones.')
+		report = generate_project_report({'project': {'id': '00000000-0000-0000-0000-000000000001', 'title': 'Test project'}}, 'Focus on milestones.')
 
 		request = urlopen.call_args.args[0]
 		request_data = json.loads(request.data)
-		self.assertEqual(report, '# Report')
+		self.assertEqual(json.loads(report)['title'], 'Test plan')
 		self.assertIn('gemini-test-model:generateContent', request.full_url)
 		self.assertEqual(request.headers['X-goog-api-key'], 'test-key')
 		self.assertIn('Test project', request_data['contents'][0]['parts'][0]['text'])
 		self.assertIn('Focus on milestones.', request_data['contents'][0]['parts'][0]['text'])
+		self.assertEqual(request_data['generationConfig']['responseMimeType'], 'application/json')
 
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.urllib.request.urlopen')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
 	def test_generate_project_report_renders_full_prompt_template(self, get_api_key, urlopen):
 		urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
-			'candidates': [{'content': {'parts': [{'text': '# Report'}]}}],
+			'candidates': [{'content': {'parts': [{'text': json.dumps({
+				'format': 'projectnote-research-plan-v1',
+				'project_id': '00000000-0000-0000-0000-000000000001',
+				'title': 'Plan',
+				'summary': 'Summary',
+				'ready_to_apply': True,
+				'questions': [],
+				'human_subjects': False,
+				'ethics_checks': [],
+				'nodes': [{'key': 'phase-1', 'title': 'Phase'}],
+				'relationships': [],
+			})}]}}],
 		}).encode()
 		project_json = {'project': {'title': 'Custom prompt project'}, 'nodes': [], 'relationships': []}
 		prompt_template = 'Write this report your way. Images: {{IMAGE_CATALOG}}\nData: {{PROJECT_JSON}}'
@@ -652,11 +815,22 @@ class GeminiClientTests(SimpleTestCase):
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
 	def test_generate_project_report_sends_titled_images_for_contextual_placement(self, get_api_key, urlopen):
 		urlopen.return_value.__enter__.return_value.read.return_value = json.dumps({
-			'candidates': [{'content': {'parts': [{'text': '# Report\n\n[[PROJECT_IMAGE:image-1]]'}]}}],
+			'candidates': [{'content': {'parts': [{'text': json.dumps({
+				'format': 'projectnote-research-plan-v1',
+				'project_id': '00000000-0000-0000-0000-000000000001',
+				'title': 'Image research plan',
+				'summary': 'Use the supplied image as evidence.',
+				'ready_to_apply': True,
+				'questions': [],
+				'human_subjects': False,
+				'ethics_checks': [],
+				'nodes': [{'key': 'phase-1', 'title': 'Review image'}],
+				'relationships': [],
+			})}]}}],
 		}).encode()
 		image_data = base64.b64encode(b'fake-png-bytes').decode()
 		project_json = {
-			'project': {'title': 'Image project'},
+			'project': {'id': '00000000-0000-0000-0000-000000000001', 'title': 'Image project'},
 			'nodes': [{
 				'id': 'image-1',
 				'type': 'image',
@@ -675,7 +849,7 @@ class GeminiClientTests(SimpleTestCase):
 		self.assertIn('[[PROJECT_IMAGE:image-1]]', prompt)
 		self.assertEqual(parts[2]['inlineData']['mimeType'], 'image/png')
 		self.assertEqual(parts[2]['inlineData']['data'], image_data)
-		self.assertIn('[[PROJECT_IMAGE:image-1]]', report)
+		self.assertEqual(json.loads(report)['title'], 'Image research plan')
 
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')
@@ -689,6 +863,7 @@ class GeminiClientTests(SimpleTestCase):
 		first = {'project': {'title': 'Photo report'}, 'nodes': [{'id': 'image-1', 'type': 'image', 'title': 'Site A', 'image_url': 'data:image/png;base64,AAAA'}], 'relationships': []}
 		second = {**first, 'nodes': [{**first['nodes'][0], 'image_url': 'data:image/png;base64,BBBB'}]}
 		self.assertNotEqual(project_report_fingerprint(first, ''), project_report_fingerprint(second, ''))
+		self.assertNotEqual(project_report_fingerprint(first, '', [{'key': 'site', 'answer': 'North shore'}]), project_report_fingerprint(first, ''))
 
 	@override_settings(GEMINI_API_KEY='test-key')
 	@patch('api.gemini.get_gemini_api_key', return_value='test-key')

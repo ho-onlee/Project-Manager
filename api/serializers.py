@@ -199,9 +199,22 @@ class ProjectGroupRelationshipSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class ResearchPlanAnswerSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=64)
+    answer = serializers.CharField(max_length=2000, allow_blank=False)
+
+
+class ResearchPlanQuestionSerializer(serializers.Serializer):
+    key = serializers.RegexField(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')
+    question = serializers.CharField(max_length=500)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
+
+
 class GenerateProjectReportSerializer(serializers.Serializer):
     project_json = serializers.JSONField()
     prompt = serializers.CharField(max_length=12000, required=False, allow_blank=True, default='')
+    clarifications = ResearchPlanAnswerSerializer(many=True, required=False, default=list, max_length=8)
+    force = serializers.BooleanField(required=False, default=False)
 
     def validate_project_json(self, value):
         if not isinstance(value, dict) or not isinstance(value.get('project'), dict):
@@ -209,6 +222,97 @@ class GenerateProjectReportSerializer(serializers.Serializer):
         if not isinstance(value.get('nodes'), list) or not isinstance(value.get('relationships'), list):
             raise serializers.ValidationError('Project JSON must include nodes and relationships arrays.')
         return value
+
+
+class ResearchPlanNodeSerializer(serializers.Serializer):
+    key = serializers.RegexField(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$')
+    title = serializers.CharField(max_length=255)
+    description = serializers.CharField(max_length=6000, required=False, allow_blank=True, default='')
+    node_type = serializers.ChoiceField(choices=['step', 'text', 'list'], default='step')
+    parent_key = serializers.CharField(max_length=64, allow_null=True, required=False, default=None)
+    list_style = serializers.ChoiceField(choices=['', 'ol', 'ul'], required=False, default='')
+    resource_ids = serializers.ListField(child=serializers.UUIDField(), required=False, default=list, max_length=20)
+
+
+class ResearchPlanRelationshipSerializer(serializers.Serializer):
+    source_key = serializers.CharField(max_length=64)
+    target_key = serializers.CharField(max_length=64)
+    label = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+
+
+class ApplyResearchPlanSerializer(serializers.Serializer):
+    format = serializers.ChoiceField(choices=['projectnote-research-plan-v1'])
+    project_id = serializers.UUIDField()
+    title = serializers.CharField(max_length=255)
+    summary = serializers.CharField(max_length=6000, allow_blank=True, required=False, default='')
+    ready_to_apply = serializers.BooleanField(default=True)
+    questions = ResearchPlanQuestionSerializer(many=True, required=False, default=list, max_length=5)
+    human_subjects = serializers.BooleanField(default=False)
+    ethics_checks = serializers.ListField(child=serializers.CharField(max_length=500), required=False, default=list, max_length=10)
+    nodes = ResearchPlanNodeSerializer(many=True, allow_empty=False, max_length=80)
+    relationships = ResearchPlanRelationshipSerializer(many=True, required=False, default=list, max_length=160)
+
+    def validate(self, attrs):
+        if attrs['questions'] and attrs['ready_to_apply']:
+            raise serializers.ValidationError({'ready_to_apply': 'A plan with unanswered questions cannot be ready to apply.'})
+        question_keys = [question['key'] for question in attrs['questions']]
+        if len(set(question_keys)) != len(question_keys):
+            raise serializers.ValidationError({'questions': 'Question keys must be unique.'})
+        if attrs['human_subjects'] and len(attrs['ethics_checks']) < 3:
+            raise serializers.ValidationError({'ethics_checks': 'Plans involving people must include explicit consent, privacy, and risk checks.'})
+        nodes = attrs['nodes']
+        node_map = {node['key']: node for node in nodes}
+        if len(node_map) != len(nodes):
+            raise serializers.ValidationError({'nodes': 'Node keys must be unique.'})
+
+        for node in nodes:
+            parent_key = node['parent_key']
+            if len(set(node['resource_ids'])) != len(node['resource_ids']):
+                raise serializers.ValidationError({'nodes': f"Resource ids must be unique for node '{node['key']}'."})
+            if parent_key is not None and parent_key not in node_map:
+                raise serializers.ValidationError({'nodes': f"Unknown parent key '{parent_key}'."})
+            if parent_key == node['key']:
+                raise serializers.ValidationError({'nodes': 'A node cannot be its own parent.'})
+
+        for key in node_map:
+            visited = set()
+            current = key
+            while current is not None:
+                if current in visited:
+                    raise serializers.ValidationError({'nodes': 'Parent relationships cannot contain cycles.'})
+                visited.add(current)
+                current = node_map[current]['parent_key']
+
+        relationships = attrs['relationships']
+        edges = set()
+        adjacency = {key: [] for key in node_map}
+        for relationship in relationships:
+            source = relationship['source_key']
+            target = relationship['target_key']
+            if source not in node_map or target not in node_map:
+                raise serializers.ValidationError({'relationships': 'Every relationship must reference plan node keys.'})
+            if source == target or (source, target) in edges:
+                raise serializers.ValidationError({'relationships': 'Relationships must be unique and connect different nodes.'})
+            edges.add((source, target))
+            adjacency[source].append(target)
+
+        visited = set()
+        active = set()
+
+        def visit(key):
+            if key in active:
+                raise serializers.ValidationError({'relationships': 'Plan relationships cannot contain cycles.'})
+            if key in visited:
+                return
+            active.add(key)
+            for target in adjacency[key]:
+                visit(target)
+            active.remove(key)
+            visited.add(key)
+
+        for key in node_map:
+            visit(key)
+        return attrs
 
 
 class GeminiSettingsSerializer(serializers.Serializer):

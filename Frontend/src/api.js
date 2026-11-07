@@ -67,7 +67,9 @@ export const deleteProjectGroupItemAPI = id => API.delete(`/project-group-items/
 export const createProjectGroupRelationshipAPI = relationshipData => API.post('/project-group-relationships/', relationshipData);
 export const updateProjectGroupRelationshipAPI = (id, relationshipData) => API.patch(`/project-group-relationships/${id}/`, relationshipData);
 export const deleteProjectGroupRelationshipAPI = id => API.delete(`/project-group-relationships/${id}/`);
-export const generateProjectReportAPI = (id, projectJson, prompt) => API.post(`/projects/${id}/generate-report/`, { project_json: projectJson, prompt });
+export const generateProjectReportAPI = (id, projectJson, prompt, options = {}) => API.post(`/projects/${id}/generate-report/`, { project_json: projectJson, prompt, ...options });
+export const applyProjectPlanAPI = (id, plan) => API.post(`/projects/${id}/apply-plan/`, plan);
+export const fetchProjectPlanHistoryAPI = id => API.get(`/projects/${id}/plans/`);
 export const fetchGeminiSettingsAPI = () => API.get('/settings/gemini/');
 export const saveGeminiSettingsAPI = apiKey => API.post('/settings/gemini/', { api_key: apiKey });
 export const deleteGeminiSettingsAPI = () => API.delete('/settings/gemini/');

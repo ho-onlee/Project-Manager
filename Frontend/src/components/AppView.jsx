@@ -8,7 +8,7 @@ import SettingsView from './SettingsView';
 import TeamManagementPanel from './TeamManagementPanel';
 import DashboardView from './DashboardView';
 import TitleView from './TitleView';
-import { DEFAULT_REPORT_PROMPT } from '../reportPrompt';
+import { getReportPrompt } from '../reportPrompt';
 
 export default function AppView({ activeView, onNavigate, onChangeWorkspace, colorSchemes, selectedColorSchemeId, onSelectColorScheme, onImportColorScheme, accessibility, onAccessibilityChange, session, activeWorkspaceId, onSessionUpdated, userPreferences, onUpdateUserPreferences }) {
   const teams = session?.workspaces?.filter(workspace => workspace.type === 'team') || [];
@@ -24,7 +24,7 @@ export default function AppView({ activeView, onNavigate, onChangeWorkspace, col
     return <ToolView teams={teams} activeWorkspaceId={activeWorkspaceId} />;
   }
   if (activeView === 'projects') {
-    return <ProjectsView teams={teams} activeWorkspaceId={activeWorkspaceId} canManageAssignments={canManageAssignments} reportPrompt={userPreferences?.reportPrompt || DEFAULT_REPORT_PROMPT} reviewReportData={userPreferences?.reviewReportData ?? true} />;
+    return <ProjectsView teams={teams} activeWorkspaceId={activeWorkspaceId} canManageAssignments={canManageAssignments} reportPrompt={getReportPrompt(userPreferences?.reportPrompt)} reviewReportData={userPreferences?.reviewReportData ?? true} />;
   }
   if (activeView === 'project-groups') {
     return <ProjectGroupsView teams={teams} activeWorkspaceId={activeWorkspaceId} />;

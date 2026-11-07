@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import useDeleteKey from './useDeleteKey';
-import { createProjectNodeAPI, createProjectRelationshipAPI, deleteProjectNodeAPI, deleteProjectRelationshipAPI, fetchEnvironments, fetchSkills, fetchTools, updateProjectAPI, updateProjectNodeAPI } from '../api';
+import { applyProjectPlanAPI, createProjectNodeAPI, createProjectRelationshipAPI, deleteProjectNodeAPI, deleteProjectRelationshipAPI, fetchEnvironments, fetchSkills, fetchTools, updateProjectAPI, updateProjectNodeAPI } from '../api';
 import { calculateProjectNodeOrders } from '../projectNodeOrder';
 
 function flatten(nodes, depth = 0) {
@@ -63,6 +63,11 @@ export default function ProjectDiagram({ project, onBack }) {
   const [imageZoom, setImageZoom] = useState(1);
   const [imagePan, setImagePan] = useState({ x: 0, y: 0 });
   const [imagePanStart, setImagePanStart] = useState(null);
+  const planFileInput = useRef(null);
+  const [importingPlan, setImportingPlan] = useState(false);
+  const [pendingPlan, setPendingPlan] = useState(null);
+  const [planImportMessage, setPlanImportMessage] = useState('');
+  const [planImportError, setPlanImportError] = useState('');
   const [palettePosition, setPalettePosition] = useState(() => readPaletteCache('position', { x: 240, y: 116 }));
   const [paletteWidth, setPaletteWidth] = useState(() => readPaletteCache('width', null));
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -522,6 +527,40 @@ export default function ProjectDiagram({ project, onBack }) {
 
   const stopImagePan = () => setImagePanStart(null);
 
+  const importPlanFile = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setPlanImportMessage('');
+    setPlanImportError('');
+    try {
+      if (file.size > 1_000_000) throw new Error('Plan file must be smaller than 1 MB.');
+      const plan = JSON.parse(await file.text());
+      if (plan?.format !== 'projectnote-research-plan-v1' || !Array.isArray(plan.nodes) || !Array.isArray(plan.relationships)) throw new Error('That file is not a ProjectNote research plan.');
+      setPendingPlan(plan);
+    } catch (requestError) {
+      setPlanImportError(requestError instanceof SyntaxError ? 'That file is not valid JSON.' : requestError.response?.data?.detail || requestError.message || 'Plan JSON could not be imported.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const applyPendingPlan = async () => {
+    if (!pendingPlan) return;
+    setImportingPlan(true);
+    setPlanImportError('');
+    try {
+      const response = await applyProjectPlanAPI(project.id, pendingPlan);
+      setNodes(flatten(response.data.project.nodes || []));
+      setRelationships(response.data.project.relationships || []);
+      setPlanImportMessage(`${response.data.nodeCount} plan nodes added to the project.`);
+      setPendingPlan(null);
+    } catch (requestError) {
+      setPlanImportError(requestError.response?.data?.detail || 'Plan JSON could not be imported.');
+    } finally {
+      setImportingPlan(false);
+    }
+  };
+
   const resetImageView = () => {
     setImageZoom(1);
     setImagePan({ x: 0, y: 0 });
@@ -538,6 +577,35 @@ export default function ProjectDiagram({ project, onBack }) {
   return (
     <section ref={diagramRef} className={`diagram-view ${connectorMode ? 'connector-mode' : ''}`} onPointerMove={movePanel} onPointerUp={stopPanelDrag}>
       <button className="floating-project-back" type="button" aria-label="Back to project cards" title="Back to project cards" onClick={onBack}>×</button>
+      <div className="project-plan-import-control">
+        <input ref={planFileInput} type="file" accept="application/json,.json" hidden onChange={importPlanFile} />
+        <button type="button" disabled={importingPlan} onClick={() => planFileInput.current?.click()}>{importingPlan ? 'Importing…' : 'Import plan JSON'}</button>
+        {planImportMessage && <span role="status">{planImportMessage}</span>}
+        {planImportError && <span role="alert">{planImportError}</span>}
+      </div>
+      {pendingPlan && <div className="modal-backdrop research-plan-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !importingPlan && setPendingPlan(null)}>
+        <section className="device-modal research-plan-preview" role="dialog" aria-modal="true" aria-labelledby="import-plan-preview-title">
+          <header className="modal-header">
+            <div><span className="eyebrow">Review imported JSON</span><h2 id="import-plan-preview-title">{pendingPlan.title}</h2></div>
+            <button className="close-button" type="button" aria-label="Cancel plan import" disabled={importingPlan} onClick={() => setPendingPlan(null)}>×</button>
+          </header>
+          <p>{pendingPlan.summary}</p>
+          {pendingPlan.human_subjects && <div className="research-ethics-note"><strong>Human-subject safeguards</strong><ul>{(pendingPlan.ethics_checks || []).map((check, index) => <li key={`${index}-${check}`}>{check}</li>)}</ul></div>}
+          {(pendingPlan.questions?.length || pendingPlan.ready_to_apply === false) && <p className="settings-error">Answer the plan questions and download an updated plan before applying.</p>}
+          <div className="research-plan-preview-list">{(pendingPlan.nodes || []).map((node, index) => <article key={node.key || index}>
+            <span>{index + 1} · {node.node_type || 'step'}</span>
+            <h3>{node.title}</h3>
+            {node.description && <p>{node.description}</p>}
+            {(node.resource_ids || []).length > 0 && <small>{node.resource_ids.length} selected resource references</small>}
+          </article>)}</div>
+          <p className="research-plan-preview-count">{pendingPlan.nodes.length} nodes · {pendingPlan.relationships.length + pendingPlan.nodes.reduce((count, node) => count + (node.resource_ids || []).length, 0)} connections. Existing project nodes and resources will remain.</p>
+          {planImportError && <p className="settings-error" role="alert">{planImportError}</p>}
+          <footer className="modal-actions">
+            <button className="quiet-button" type="button" disabled={importingPlan} onClick={() => setPendingPlan(null)}>Cancel</button>
+            <button className="primary-button" type="button" disabled={importingPlan || pendingPlan.ready_to_apply === false || Boolean(pendingPlan.questions?.length)} onClick={applyPendingPlan}>{importingPlan ? 'Adding to project…' : 'Apply plan'}</button>
+          </footer>
+        </section>
+      </div>}
       <div className="diagram-layout">
         <div ref={canvasRef} className={`diagram-canvas ${isMobileDiagram ? 'mobile-diagram-canvas' : ''}`} style={{ backgroundPosition: `${canvasPan.x}px ${canvasPan.y}px` }} onContextMenu={event => event.preventDefault()} onDragOver={event => event.preventDefault()} onDrop={dropPaletteItem} onPointerDown={event => { clearSelection(event); cancelConnection(event); beginSelectionBox(event); if (event.button === 1) beginPan(event); }} onPointerMove={event => { moveNode(event); moveConnection(event); movePan(event); moveSelectionBox(event); }} onPointerUp={event => { finishMove(event); finishConnectionAtPointer(event); finishPan(); finishSelectionBox(); }} onPointerLeave={() => { finishMove(); finishPan(); finishSelectionBox(); }}>
           <div className={`diagram-pan-layer ${isMobileDiagram ? 'mobile-diagram-pan-layer' : ''}`} style={{ height: isMobileDiagram ? mobileCanvasHeight : undefined, transform: `translate(${canvasPan.x}px, ${canvasPan.y}px) scale(${canvasZoom})` }}>
@@ -614,7 +682,7 @@ export default function ProjectDiagram({ project, onBack }) {
         <div className="floating-panel-header" onPointerDown={event => startPanelDrag('palette', event)}><span>Insert</span><button type="button" aria-label={paletteMinimized ? 'Expand palette' : 'Minimize palette'} onPointerDown={event => event.stopPropagation()} onClick={() => setPaletteMinimized(value => !value)}>{paletteMinimized ? '＋' : '−'}</button></div>
         {!paletteMinimized && <>
           <div className="project-palette-tabs"><button className={`project-palette-tab ${paletteTab === 'skills' ? 'active' : ''}`} type="button" onClick={() => setPaletteTab('skills')}>Skills</button><button className={`project-palette-tab ${paletteTab === 'tools' ? 'active' : ''}`} type="button" onClick={() => setPaletteTab('tools')}>Tools</button><button className={`project-palette-tab ${paletteTab === 'environments' ? 'active' : ''}`} type="button" onClick={() => setPaletteTab('environments')}>Envs</button><button className={`project-palette-tab ${paletteTab === 'blocks' ? 'active' : ''}`} type="button" onClick={() => setPaletteTab('blocks')}>Blocks</button></div>
-          <div className="floating-palette-list">{(paletteTab === 'blocks' ? blockItems : paletteTab === 'skills' ? skills : paletteTab === 'tools' ? tools : environments).map((item, index) => <button className="floating-palette-item" draggable key={item.id || item.node_type + index} type="button" onDragStart={event => event.dataTransfer.setData('application/project-node', JSON.stringify({ title: item.name || item.title, description: item.description || '', skillIds: item.skillIds, node_type: item.node_type || (paletteTab === 'skills' ? 'skill' : paletteTab === 'tools' ? 'tool' : 'environment'), content: item.content, image_url: item.image_url, list_style: item.list_style }))}><span>{paletteItemIcon(item)}</span><strong>{item.name || item.title}</strong></button>)}</div>
+          <div className="floating-palette-list">{(paletteTab === 'blocks' ? blockItems : paletteTab === 'skills' ? skills : paletteTab === 'tools' ? tools : environments).map((item, index) => <button className="floating-palette-item" draggable key={item.id || item.node_type + index} type="button" onDragStart={event => event.dataTransfer.setData('application/project-node', JSON.stringify({ title: item.name || item.title, description: item.description || '', skillIds: item.skillIds, node_type: item.node_type || (paletteTab === 'skills' ? 'skill' : paletteTab === 'tools' ? 'tool' : 'environment'), content: item.content || (paletteTab === 'tools' && item.features?.length ? `Features: ${item.features.join(', ')}` : ''), image_url: item.image_url, list_style: item.list_style }))}><span>{paletteItemIcon(item)}</span><strong>{item.name || item.title}</strong></button>)}</div>
           {!(paletteTab === 'blocks' ? blockItems : paletteTab === 'skills' ? skills : paletteTab === 'tools' ? tools : environments).length && <p className="floating-palette-empty">No {paletteTab} yet.</p>}
         </>}
       </aside>

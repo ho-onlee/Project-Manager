@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiModelAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
-import { DEFAULT_REPORT_PROMPT } from '../reportPrompt';
+import { DEFAULT_REPORT_PROMPT, getReportPrompt } from '../reportPrompt';
 import TeamAccessPanel from './TeamAccessPanel';
 
 export default function SettingsView({ session, activeWorkspaceId, onChangeWorkspace, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
@@ -27,7 +27,7 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
 
   useEffect(() => {
     if (!userPreferences) return;
-    setReportPrompt(userPreferences.reportPrompt || DEFAULT_REPORT_PROMPT);
+    setReportPrompt(getReportPrompt(userPreferences.reportPrompt));
     setReviewReportData(userPreferences.reviewReportData ?? true);
     const selectedKeyWorkspace = userPreferences.geminiWorkspaceId || session?.geminiWorkspaceId || activeWorkspaceId || '';
     setGeminiWorkspaceId(selectedKeyWorkspace);
@@ -243,9 +243,9 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
       <TeamAccessPanel session={session} activeWorkspaceId={activeWorkspaceId} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} />
       <section className="settings-panel report-prompt-panel" aria-labelledby="report-prompt-title">
         <div className="settings-panel-heading">
-          <div><span className="eyebrow">Report instructions</span><h2 id="report-prompt-title">Prompt for report generation</h2></div>
+          <div><span className="eyebrow">Research planning</span><h2 id="report-prompt-title">Research plan instructions</h2></div>
         </div>
-        <p className="settings-description">Edit the complete prompt sent to Gemini. Use {'{{IMAGE_CATALOG}}'} and {'{{PROJECT_JSON}}'} to place report images and project data. Saved to your account.</p>
+        <p className="settings-description">Edit the prompt used to plan research from the project goal and selected resources. Keep the required projectnote-research-plan-v1 JSON structure so plans can be downloaded and applied to the diagram. Use {'{{IMAGE_CATALOG}}'} and {'{{PROJECT_JSON}}'} for the source data. Saved to your account.</p>
         <form className="report-prompt-form" onSubmit={saveReportPrompt}>
           <label htmlFor="report-generation-prompt">Full report prompt</label>
           <textarea id="report-generation-prompt" rows="14" maxLength="12000" value={reportPrompt} onChange={event => setReportPrompt(event.target.value)} required />

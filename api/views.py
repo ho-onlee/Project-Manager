@@ -1,4 +1,6 @@
 import json
+import hashlib
+import uuid
 from pathlib import Path
 
 from django.conf import settings
@@ -9,17 +11,19 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import status, viewsets
 from django.db.models import Count, Max, Q
+from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from django.middleware.csrf import get_token
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import ensure_csrf_cookie
-from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceCardAssignment, WorkspaceGeminiCredential
-from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, clear_gemini_api_key_validation, delete_gemini_api_key, ensure_gemini_api_key_validated, generate_project_report, get_gemini_api_key, get_gemini_key_source, get_gemini_model, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
-from .serializers import EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GeminiModelSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
+from .models import AccountProfile, Environment, Node, Edge, Project, ProjectNode, ProjectRelationship, ProjectResearchPlan, ProjectGroup, ProjectGroupItem, ProjectGroupRelationship, Skill, Tool, UserPreferences, WorkspaceCardAssignment, WorkspaceGeminiCredential
+from .gemini import GeminiConfigurationError, GeminiGenerationError, GeminiInputTooLargeError, _without_image_data, clear_gemini_api_key_validation, delete_gemini_api_key, ensure_gemini_api_key_validated, generate_project_report, get_gemini_api_key, get_gemini_key_source, get_gemini_model, is_gemini_api_key_validated, mark_gemini_api_key_validated, project_report_fingerprint, store_gemini_api_key, test_gemini_api_key
+from .serializers import ApplyResearchPlanSerializer, EnvironmentSerializer, FlatNodeSerializer, GeminiSettingsSerializer, GeminiModelSerializer, GenerateProjectReportSerializer, NestedNodeSerializer, EdgeSerializer, ProjectGroupItemSerializer, ProjectGroupRelationshipSerializer, ProjectGroupSerializer, ProjectNodeSerializer, ProjectRelationshipSerializer, ProjectSerializer, SkillSerializer, ToolSerializer
 from .models import Workspace, WorkspaceMembership
 from .workspaces import WorkspaceScopedViewSet, get_active_workspace
 from .project_defaults import create_default_text_nodes
@@ -27,6 +31,31 @@ from .project_defaults import create_default_text_nodes
 
 def invalidate_project_report_cache(project_id):
     cache.delete(f'project-report:{project_id}')
+
+
+def research_plan_fingerprint(plan):
+    serialized_plan = json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)
+    return hashlib.sha256(serialized_plan.encode('utf-8')).hexdigest()
+
+
+def store_research_plan_version(project, user, plan, source_project_json, prompt, clarifications, generation_fingerprint):
+    plan_data = json.loads(json.dumps(plan, ensure_ascii=False, default=str))
+    plan_fingerprint = research_plan_fingerprint(plan_data)
+    version, _ = ProjectResearchPlan.objects.get_or_create(
+        project=project,
+        generation_fingerprint=generation_fingerprint,
+        defaults={
+            'created_by': user,
+            'title': plan_data['title'],
+            'summary': plan_data['summary'],
+            'plan_json': plan_data,
+            'source_project_json': json.loads(json.dumps(_without_image_data(source_project_json), ensure_ascii=False, default=str)),
+            'prompt': prompt,
+            'clarifications': clarifications,
+            'plan_fingerprint': plan_fingerprint,
+        },
+    )
+    return version
 
 
 def gemini_settings_payload(workspace_id, source=None):
@@ -145,8 +174,11 @@ class UserPreferencesView(APIView):
         return self.get(request)
 
 
+@method_decorator(csrf_protect, name='dispatch')
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_register'
 
     @transaction.atomic
     def post(self, request):
@@ -179,8 +211,11 @@ class RegisterView(APIView):
         return Response({'registered': True, 'email': email}, status=status.HTTP_201_CREATED)
 
 
+@method_decorator(csrf_protect, name='dispatch')
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_login'
 
     def post(self, request):
         email = str(request.data.get('email', '')).strip().lower()
@@ -195,8 +230,11 @@ class LoginView(APIView):
         return Response(user_session_payload(authenticated_user))
 
 
+@method_decorator(csrf_protect, name='dispatch')
 class GoogleSignInView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_google'
 
     @transaction.atomic
     def post(self, request):
@@ -460,6 +498,151 @@ class ProjectViewSet(WorkspaceScopedViewSet):
         invalidate_project_report_cache(instance.id)
         super().perform_destroy(instance)
 
+    @action(detail=True, methods=['post'], url_path='apply-plan')
+    @transaction.atomic
+    def apply_plan(self, request, pk=None):
+        project = self.get_object()
+        project = Project.objects.select_for_update().get(pk=project.pk)
+        input_serializer = ApplyResearchPlanSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        plan = input_serializer.validated_data
+        if plan['project_id'] != project.id:
+            return Response({'detail': 'This plan was generated for a different project.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not plan['ready_to_apply'] or plan['questions']:
+            return Response({'detail': 'Answer the plan questions and generate an updated plan before applying it.', 'questions': plan['questions']}, status=status.HTTP_409_CONFLICT)
+
+        resource_ids = {resource_id for node in plan['nodes'] for resource_id in node['resource_ids']}
+        available_resources = set(ProjectNode.objects.filter(
+            project=project,
+            id__in=resource_ids,
+            node_type__in=['tool', 'skill', 'environment'],
+        ).values_list('id', flat=True))
+        if available_resources != resource_ids:
+            return Response({'detail': 'A plan references a tool, skill, or environment that is no longer on this project canvas.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        normalized_plan = json.loads(json.dumps(plan, ensure_ascii=False, default=str))
+        plan_fingerprint = research_plan_fingerprint(normalized_plan)
+        applied_version = ProjectResearchPlan.objects.filter(
+            project=project,
+            plan_fingerprint=plan_fingerprint,
+            applied_at__isnull=False,
+        ).first()
+        if applied_version:
+            return Response({'detail': 'This exact plan has already been applied.', 'planVersionId': str(applied_version.id)}, status=status.HTTP_409_CONFLICT)
+
+        root = project.nodes.filter(is_project_root=True).first()
+        if root is None:
+            return Response({'detail': 'The project root node could not be found.'}, status=status.HTTP_409_CONFLICT)
+
+        nodes_by_key = {}
+        plan_nodes_by_key = {node['key']: node for node in plan['nodes']}
+        depths = {}
+        sibling_indexes = {}
+        child_counts = {}
+        for node in plan['nodes']:
+            child_counts[node['parent_key']] = child_counts.get(node['parent_key'], 0) + 1
+        next_order_by_parent = {}
+        pending = list(plan['nodes'])
+        while pending:
+            created_this_pass = False
+            for node in pending[:]:
+                parent_key = node['parent_key']
+                if parent_key is not None and parent_key not in nodes_by_key:
+                    continue
+                parent = nodes_by_key[parent_key] if parent_key is not None else root
+                if parent.id not in next_order_by_parent:
+                    max_order = ProjectNode.objects.filter(project=project, parent=parent).aggregate(value=Max('order'))['value']
+                    next_order_by_parent[parent.id] = (max_order + 1) if max_order is not None else 0
+                sibling_index = sibling_indexes.get(parent.id, 0)
+                sibling_indexes[parent.id] = sibling_index + 1
+                depth = depths[parent_key] + 1 if parent_key is not None else 1
+                if parent is root:
+                    x = 360 + (sibling_index % 3) * 250
+                    y = 470 + (sibling_index // 3) * 180
+                else:
+                    sibling_offset = sibling_index - (child_counts[parent_key] - 1) / 2
+                    x = parent.x + sibling_offset * 230
+                    y = parent.y + 175
+                created_node = ProjectNode.objects.create(
+                    project=project,
+                    parent=parent,
+                    title=node['title'],
+                    description=node['description'],
+                    node_type=node['node_type'],
+                    list_style=node['list_style'],
+                    order=next_order_by_parent[parent.id],
+                    x=x,
+                    y=y,
+                )
+                next_order_by_parent[parent.id] += 1
+                nodes_by_key[node['key']] = created_node
+                depths[node['key']] = depth
+                pending.remove(node)
+                created_this_pass = True
+            if not created_this_pass:
+                raise ValidationError({'nodes': 'Plan nodes could not be ordered by their parent references.'})
+
+        for relationship in plan['relationships']:
+            ProjectRelationship.objects.create(
+                project=project,
+                source=nodes_by_key[relationship['source_key']],
+                target=nodes_by_key[relationship['target_key']],
+                label=relationship['label'],
+            )
+
+        resource_relationship_count = 0
+        for node_key, node in plan_nodes_by_key.items():
+            for resource_id in node['resource_ids']:
+                ProjectRelationship.objects.create(
+                    project=project,
+                    source_id=resource_id,
+                    target=nodes_by_key[node_key],
+                    label='uses',
+                )
+                resource_relationship_count += 1
+
+        version = ProjectResearchPlan.objects.filter(project=project, plan_fingerprint=plan_fingerprint).order_by('-created_at').first()
+        if version is None:
+            import_fingerprint = hashlib.sha256(f'import:{plan_fingerprint}'.encode('utf-8')).hexdigest()
+            version = store_research_plan_version(
+                project,
+                request.user,
+                normalized_plan,
+                ProjectSerializer(project, context=self.get_serializer_context()).data,
+                '',
+                [],
+                import_fingerprint,
+            )
+        version.applied_at = timezone.now()
+        version.save(update_fields=['applied_at'])
+
+        invalidate_project_report_cache(project.id)
+        project_data = ProjectSerializer(project, context=self.get_serializer_context()).data
+        return Response({
+            'project': project_data,
+            'nodeCount': len(nodes_by_key),
+            'relationshipCount': len(plan['relationships']) + resource_relationship_count,
+            'planVersionId': str(version.id),
+            'appliedAt': version.applied_at.isoformat(),
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='plans')
+    def research_plans(self, request, pk=None):
+        project = self.get_object()
+        versions = project.research_plans.select_related('created_by').all()
+        return Response([{
+            'id': str(version.id),
+            'title': version.title,
+            'summary': version.summary,
+            'plan_json': version.plan_json,
+            'source_project_json': version.source_project_json,
+            'prompt': version.prompt,
+            'clarifications': version.clarifications,
+            'created_at': version.created_at.isoformat(),
+            'applied_at': version.applied_at.isoformat() if version.applied_at else None,
+            'created_by': version.created_by.get_full_name() or version.created_by.email if version.created_by else '',
+        } for version in versions])
+
     @action(detail=True, methods=['post'], url_path='generate-report')
     def generate_report(self, request, pk=None):
         input_serializer = GenerateProjectReportSerializer(data=request.data)
@@ -469,23 +652,56 @@ class ProjectViewSet(WorkspaceScopedViewSet):
         if str(project_json['project'].get('id', '')) != str(project.id):
             return Response({'detail': 'The JSON does not belong to this project.'}, status=status.HTTP_400_BAD_REQUEST)
         report_prompt = input_serializer.validated_data['prompt']
+        clarifications = input_serializer.validated_data['clarifications']
+        force_generate = input_serializer.validated_data['force']
         cache_key = f'project-report:{project.id}'
-        fingerprint = project_report_fingerprint(project_json, report_prompt)
+        fingerprint = project_report_fingerprint(project_json, report_prompt, clarifications)
         cached_report = cache.get(cache_key)
-        if cached_report and cached_report['fingerprint'] == fingerprint:
-            return Response({'report': cached_report['report'], 'cached': True})
+        if cached_report and cached_report['fingerprint'] == fingerprint and not force_generate:
+            try:
+                cached_plan = json.loads(cached_report['report'])
+            except (KeyError, json.JSONDecodeError):
+                cached_plan = None
+            if isinstance(cached_plan, dict) and cached_plan.get('project_id') == str(project.id):
+                cached_serializer = ApplyResearchPlanSerializer(data=cached_plan)
+                if cached_serializer.is_valid():
+                    normalized_plan = json.loads(json.dumps(cached_serializer.validated_data, ensure_ascii=False, default=str))
+                    normalized_report = json.dumps(normalized_plan, ensure_ascii=False, indent=2)
+                    generation_fingerprint = cached_report.get('generation_fingerprint', fingerprint)
+                    version = store_research_plan_version(project, request.user, normalized_plan, project_json, report_prompt, clarifications, generation_fingerprint)
+                    return Response({
+                        'report': normalized_report,
+                        'cached': True,
+                        'planVersionId': str(version.id),
+                        'appliedAt': version.applied_at.isoformat() if version.applied_at else None,
+                        'createdAt': version.created_at.isoformat(),
+                    })
         try:
             gemini_workspace = get_gemini_workspace(request)
             ensure_gemini_api_key_validated(gemini_workspace.id)
-            report = generate_project_report(project_json, report_prompt, workspace_id=gemini_workspace.id)
+            report = generate_project_report(project_json, report_prompt, workspace_id=gemini_workspace.id, clarifications=clarifications)
+            generated_plan = json.loads(report)
+            plan_serializer = ApplyResearchPlanSerializer(data=generated_plan)
+            if not plan_serializer.is_valid() or plan_serializer.validated_data['project_id'] != project.id:
+                raise GeminiGenerationError('Gemini returned a plan that failed project or structure validation. Try again.')
+            generated_plan = json.loads(json.dumps(plan_serializer.validated_data, ensure_ascii=False, default=str))
+            report = json.dumps(generated_plan, ensure_ascii=False, indent=2)
         except GeminiConfigurationError as error:
             return Response({'detail': str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except GeminiInputTooLargeError as error:
             return Response({'detail': str(error)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         except GeminiGenerationError as error:
             return Response({'detail': str(error)}, status=status.HTTP_502_BAD_GATEWAY)
-        cache.set(cache_key, {'fingerprint': fingerprint, 'report': report}, timeout=None)
-        return Response({'report': report, 'cached': False})
+        generation_fingerprint = hashlib.sha256(f'{fingerprint}:{uuid.uuid4()}'.encode('utf-8')).hexdigest() if force_generate else fingerprint
+        version = store_research_plan_version(project, request.user, generated_plan, project_json, report_prompt, clarifications, generation_fingerprint)
+        cache.set(cache_key, {'fingerprint': fingerprint, 'report': report, 'generation_fingerprint': generation_fingerprint}, timeout=None)
+        return Response({
+            'report': report,
+            'cached': False,
+            'planVersionId': str(version.id),
+            'appliedAt': version.applied_at.isoformat() if version.applied_at else None,
+            'createdAt': version.created_at.isoformat(),
+        })
 
 
 class ProjectGroupViewSet(WorkspaceScopedViewSet):

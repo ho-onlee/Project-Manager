@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createProjectAPI, fetchGeminiSettingsAPI, fetchProjects, generateProjectReportAPI, updateSharedCardAPI } from '../api';
+import { applyProjectPlanAPI, createProjectAPI, fetchGeminiSettingsAPI, fetchProjects, fetchProjectPlanHistoryAPI, generateProjectReportAPI, updateSharedCardAPI } from '../api';
 import CardActions from './CardActions';
 import FloatingAction from './FloatingAction';
 import ProjectModal from './ProjectModal';
@@ -10,6 +10,41 @@ import ProjectAssigneePicker from './ProjectAssigneePicker';
 import CatalogSearch from './CatalogSearch';
 import useCreatedCardAnimation from './useCreatedCardAnimation';
 
+function parseResearchPlan(value) {
+  const plan = JSON.parse(value);
+  if (plan?.format !== 'projectnote-research-plan-v1' || !Array.isArray(plan.nodes) || !Array.isArray(plan.relationships) || !Array.isArray(plan.questions)) {
+    throw new Error('Gemini returned JSON that does not match the research plan format.');
+  }
+  return plan;
+}
+
+function researchPlanMarkdown(plan, projectJson) {
+  const sections = [`# ${plan.title}`, plan.summary || '', '## Research flow'];
+  const resourcesById = new Map();
+  const collectResources = nodes => (nodes || []).forEach(node => {
+    if (['tool', 'skill', 'environment'].includes(node.type || node.node_type)) resourcesById.set(String(node.id), `${node.title} (${node.type || node.node_type})`);
+    collectResources(node.children);
+  });
+  collectResources(projectJson?.nodes);
+  if (plan.questions.length) {
+    sections.push('## Questions to resolve', ...plan.questions.map(item => `- ${item.question}${item.reason ? ` (${item.reason})` : ''}`));
+  }
+  plan.nodes.forEach((node, index) => {
+    sections.push(`${node.parent_key ? '###' : '##'} ${index + 1}. ${node.title}`, node.description || '');
+    const resourceNames = (node.resource_ids || []).map(id => resourcesById.get(String(id))).filter(Boolean);
+    if (resourceNames.length) sections.push(`**Available resources:** ${resourceNames.join(', ')}`);
+  });
+  if (plan.human_subjects && plan.ethics_checks?.length) {
+    sections.push('## Human-subject safeguards', ...plan.ethics_checks.map(item => `- ${item}`));
+  }
+  if (plan.relationships.length) {
+    const titles = new Map(plan.nodes.map(node => [node.key, node.title]));
+    sections.push('## Dependencies');
+    plan.relationships.forEach(link => sections.push(`- ${titles.get(link.source_key) || link.source_key} → ${titles.get(link.target_key) || link.target_key}${link.label ? ` (${link.label})` : ''}`));
+  }
+  return sections.filter(Boolean).join('\n\n');
+}
+
 export default function ProjectsView({ teams = [], activeWorkspaceId, canManageAssignments = false, reportPrompt, reviewReportData = true }) {
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
@@ -18,6 +53,8 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
   const [modalOpen, setModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [generatingReportId, setGeneratingReportId] = useState(null);
+  const [applyingPlan, setApplyingPlan] = useState(false);
+  const [planApplyError, setPlanApplyError] = useState('');
   const [geminiConfigured, setGeminiConfigured] = useState(null);
   const [error, setError] = useState('');
   const { createdCardIds, highlightCreatedCard } = useCreatedCardAnimation('projects');
@@ -87,24 +124,6 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
     return projectToJSON(project);
   };
 
-  const reportImages = projectJson => {
-    const images = [];
-    const visit = nodes => (nodes || []).forEach(node => {
-      if (node.type === 'image' && node.image_url?.startsWith('data:image/')) {
-        images.push({ id: String(node.id), title: node.title || 'Project image', imageUrl: node.image_url });
-      }
-      visit(node.children);
-    });
-    visit(projectJson.nodes);
-    return images;
-  };
-
-  const placeReportImages = (markdown, projectJson) => reportImages(projectJson).reduce((report, image) => {
-    const marker = `[[PROJECT_IMAGE:${image.id}]]`;
-    const safeTitle = image.title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]');
-    return report.split(marker).join(`![${safeTitle}](${image.imageUrl})\n\n*${safeTitle}*`);
-  }, markdown);
-
   const downloadProject = (event, project) => {
     event.stopPropagation();
     const projectJson = projectToJSON(project);
@@ -120,25 +139,69 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
   const sendReportRequest = async (project, payload) => {
     setGeneratingReportId(project.id);
     setError('');
+    setPlanApplyError('');
     try {
-      const response = await generateProjectReportAPI(project.id, payload.project_json, payload.prompt);
+      const response = await generateProjectReportAPI(project.id, payload.project_json, payload.prompt, {
+        clarifications: payload.clarifications || [],
+        force: Boolean(payload.force),
+      });
+      const plan = parseResearchPlan(response.data.report);
       setActiveReport({
         projectTitle: project.title,
-        markdown: placeReportImages(response.data.report, payload.project_json),
-        generatedAt: new Date().toISOString(),
+        markdown: researchPlanMarkdown(plan, payload.project_json),
+        plan,
+        planJson: `${JSON.stringify(plan, null, 2)}\n`,
+        planVersionId: response.data.planVersionId,
+        planAppliedAt: response.data.appliedAt,
+        generatedAt: response.data.createdAt || new Date().toISOString(),
         project,
         payload,
       });
     } catch (requestError) {
-      setError(requestError.response?.data?.detail || 'Report generation failed. Check Settings and try again.');
+      setError(requestError.response?.data?.detail || requestError.message || 'Research plan generation failed. Check Settings and try again.');
     } finally {
       setGeneratingReportId(null);
     }
   };
 
+  const applyPlanToProject = async plan => {
+    setApplyingPlan(true);
+    setPlanApplyError('');
+    try {
+      const response = await applyProjectPlanAPI(activeReport.project.id, plan);
+      setActiveReport(null);
+      setActiveProject(response.data.project);
+    } catch (requestError) {
+      setPlanApplyError(requestError.response?.data?.detail || 'The plan could not be added. Check that the JSON belongs to this project and follows the plan format.');
+    } finally {
+      setApplyingPlan(false);
+    }
+  };
+
+  const openPlanVersion = version => {
+    const plan = version.plan_json;
+    const sourceProject = version.source_project_json;
+    setActiveReport(current => ({
+      ...current,
+      projectTitle: sourceProject?.project?.title || current.projectTitle,
+      markdown: researchPlanMarkdown(plan, sourceProject),
+      plan,
+      planJson: `${JSON.stringify(plan, null, 2)}\n`,
+      planVersionId: version.id,
+      planAppliedAt: version.applied_at,
+      generatedAt: version.created_at,
+      payload: {
+        project_json: sourceProject,
+        prompt: version.prompt || current.payload.prompt,
+        clarifications: version.clarifications || [],
+        force: true,
+      },
+    }));
+  };
+
   const generateReport = (event, project) => {
     event.stopPropagation();
-    const payload = { project_json: projectToReportJSON(project), prompt: reportPrompt };
+    const payload = { project_json: projectToReportJSON(project), prompt: reportPrompt, clarifications: [], force: false };
     if (reviewReportData) {
       setPendingReport({ project, payload });
       return;
@@ -151,11 +214,18 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
 
   if (activeReport) {
     return <ProjectReportReader
+      key={activeReport.planVersionId || activeReport.generatedAt}
       {...activeReport}
       isRegenerating={Boolean(generatingReportId)}
       generationError={error}
+      applyingPlan={applyingPlan}
+      applyError={planApplyError}
       onBack={() => setActiveReport(null)}
-      onRegenerate={() => sendReportRequest(activeReport.project, activeReport.payload)}
+      onRegenerate={() => sendReportRequest(activeReport.project, { ...activeReport.payload, force: true })}
+      onApplyPlan={() => applyPlanToProject(activeReport.plan)}
+      onAnswerQuestions={clarifications => sendReportRequest(activeReport.project, { ...activeReport.payload, clarifications, force: true })}
+      onLoadHistory={async () => (await fetchProjectPlanHistoryAPI(activeReport.project.id)).data}
+      onOpenHistoryVersion={openPlanVersion}
     />;
   }
 
@@ -177,7 +247,7 @@ export default function ProjectsView({ teams = [], activeWorkspaceId, canManageA
             <button className="text-action" type="button" onClick={() => setActiveProject(project)}>Open diagram <span aria-hidden="true">↗</span></button>
             <div className="project-card-actions">
               <button className="project-action-button" type="button" aria-label={`Download ${project.title} JSON`} title="Download project JSON" onClick={event => downloadProject(event, project)}>↓ Download JSON</button>
-              <button className="project-action-button generate-report-button" type="button" disabled={generatingReportId === project.id || geminiConfigured === false} title={geminiConfigured === false ? 'Add a Gemini API key in Settings to enable reports.' : undefined} onClick={event => generateReport(event, project)}>{generatingReportId === project.id ? 'Generating…' : '✧ Generate report'}</button>
+              <button className="project-action-button generate-report-button" type="button" disabled={generatingReportId === project.id || geminiConfigured === false} title={geminiConfigured === false ? 'Add a Gemini API key in Settings to enable research plans.' : undefined} onClick={event => generateReport(event, project)}>{generatingReportId === project.id ? 'Planning…' : '✧ Generate research plan'}</button>
               {canManageAssignments && <ProjectAssigneePicker project={project} workspaceId={activeWorkspaceId} />}
             </div>
           </article>
