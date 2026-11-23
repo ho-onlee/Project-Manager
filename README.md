@@ -19,6 +19,32 @@ ProjectNote is a multi-user visual workspace for organizing projects, mapping st
 - Frontend: React, Vite, Axios
 - Gemini credentials: Windows Credential Manager for local Windows use, or the `GEMINI_API_KEY` environment variable on a server
 
+## How to Use
+
+### 1. Set up your tools, skills, and environments
+
+Set up the tools and skills you have in the environments where you want to run your project. Add environments to describe the context, such as a healthcare or research setting, then add skills and tools and connect the reusable items to the work they support.
+
+<table>
+  <tr>
+    <td align="center"><img src="readme_img/tools.jpeg" alt="Tools catalog" width="100%"><br><strong>Tools</strong></td>
+    <td align="center"><img src="readme_img/skills.jpeg" alt="Skills catalog" width="100%"><br><strong>Skills</strong></td>
+    <td align="center"><img src="readme_img/env.jpeg" alt="Environment catalog" width="100%"><br><strong>Environments</strong></td>
+  </tr>
+</table>
+
+### 2. Set the diagram with a logical flow
+
+Open **Projects** and create nodes for goals, subjects, tools, skills, environments, and steps. Arrange the nodes and connect them with the appropriate relationships so the diagram reflects the project's logical flow.
+
+![Project diagram](readme_img/project.jpeg)
+
+### 3. Generate an AI report
+
+Configure Google Gemini in **Settings**, open the project, and choose **Generate report**. Review the project data and attached images in the privacy preview, then select **Send to Gemini** to create the Markdown report.
+
+![Generate AI report](readme_img/ai.jpeg)
+
 ## Requirements
 
 - Python compatible with the Django version in `requirements.txt`
