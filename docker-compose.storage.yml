@@ -1,0 +1,6 @@
+services:
+  db:
+    volumes:
+      - type: bind
+        source: ${PROJECTNOTE_DATA_DIR:?Set PROJECTNOTE_DATA_DIR to an absolute host directory}
+        target: /var/lib/postgresql/data

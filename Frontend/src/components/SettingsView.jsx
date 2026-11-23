@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { deleteGeminiSettingsAPI, fetchColorSchemeSchemaAPI, fetchColorSchemeTemplateAPI, fetchGeminiSettingsAPI, saveGeminiModelAPI, saveGeminiSettingsAPI, testGeminiSettingsAPI } from '../api';
-import { DEFAULT_REPORT_PROMPT, REPORT_PROMPT_STORAGE_KEY, readReportPrompt } from '../reportPrompt';
-import { readReviewReportData, saveReviewReportData } from '../accessibilitySettings';
+import { DEFAULT_REPORT_PROMPT, getReportPrompt } from '../reportPrompt';
 import TeamAccessPanel from './TeamAccessPanel';
 
 export default function SettingsView({ session, activeWorkspaceId, onChangeWorkspace, onSessionUpdated = async () => {}, userPreferences, onUpdateUserPreferences = () => {}, colorSchemes = [], selectedColorSchemeId = 'moss', onSelectColorScheme = () => {}, onImportColorScheme = () => {}, accessibility = { textSize: 'standard', highContrast: false, reduceMotion: false }, onAccessibilityChange = () => {} }) {
@@ -15,12 +14,12 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [reportPrompt, setReportPrompt] = useState(readReportPrompt);
+  const [reportPrompt, setReportPrompt] = useState(DEFAULT_REPORT_PROMPT);
   const [promptMessage, setPromptMessage] = useState('');
   const [promptError, setPromptError] = useState('');
   const [schemeMessage, setSchemeMessage] = useState('');
   const [schemeError, setSchemeError] = useState('');
-  const [reviewReportData, setReviewReportData] = useState(readReviewReportData);
+  const [reviewReportData, setReviewReportData] = useState(true);
   const keyVerified = Boolean(settings?.configured && settings?.validated);
   const availableGeminiWorkspaces = session?.workspaces || [];
   const keyWorkspace = availableGeminiWorkspaces.find(workspace => workspace.id === geminiWorkspaceId);
@@ -28,7 +27,7 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
 
   useEffect(() => {
     if (!userPreferences) return;
-    setReportPrompt(userPreferences.reportPrompt || DEFAULT_REPORT_PROMPT);
+    setReportPrompt(getReportPrompt(userPreferences.reportPrompt));
     setReviewReportData(userPreferences.reviewReportData ?? true);
     const selectedKeyWorkspace = userPreferences.geminiWorkspaceId || session?.geminiWorkspaceId || activeWorkspaceId || '';
     setGeminiWorkspaceId(selectedKeyWorkspace);
@@ -178,30 +177,28 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
     }
   };
 
-  const saveReportPrompt = event => {
+  const saveReportPrompt = async event => {
     event.preventDefault();
-    try {
-      localStorage.setItem(REPORT_PROMPT_STORAGE_KEY, reportPrompt.trim());
-      onUpdateUserPreferences({ reportPrompt: reportPrompt.trim() });
-      setPromptMessage('Report prompt saved in this browser.');
-      setPromptError('');
-    } catch {
-      setPromptError('Prompt could not be saved in this browser.');
+    const response = await onUpdateUserPreferences({ reportPrompt });
+    if (!response) {
+      setPromptError('Prompt could not be saved to your account.');
       setPromptMessage('');
+      return;
     }
+    setPromptMessage('Full report prompt saved to your account.');
+    setPromptError('');
   };
 
-  const resetReportPrompt = () => {
+  const resetReportPrompt = async () => {
     setReportPrompt(DEFAULT_REPORT_PROMPT);
-    try {
-      localStorage.setItem(REPORT_PROMPT_STORAGE_KEY, DEFAULT_REPORT_PROMPT);
-      onUpdateUserPreferences({ reportPrompt: DEFAULT_REPORT_PROMPT });
-      setPromptMessage('Default report prompt restored.');
-      setPromptError('');
-    } catch {
-      setPromptError('Prompt could not be saved in this browser.');
+    const response = await onUpdateUserPreferences({ reportPrompt: DEFAULT_REPORT_PROMPT });
+    if (!response) {
+      setPromptError('Default prompt could not be saved to your account.');
       setPromptMessage('');
+      return;
     }
+    setPromptMessage('Default report prompt restored and saved to your account.');
+    setPromptError('');
   };
 
   return (
@@ -246,13 +243,13 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
       <TeamAccessPanel session={session} activeWorkspaceId={activeWorkspaceId} onChangeWorkspace={onChangeWorkspace} onSessionUpdated={onSessionUpdated} />
       <section className="settings-panel report-prompt-panel" aria-labelledby="report-prompt-title">
         <div className="settings-panel-heading">
-          <div><span className="eyebrow">Report instructions</span><h2 id="report-prompt-title">Prompt for report generation</h2></div>
+          <div><span className="eyebrow">Research planning</span><h2 id="report-prompt-title">Research plan instructions</h2></div>
         </div>
-        <p className="settings-description">Set the focus and structure Gemini should use for each project report. Saved only in this browser.</p>
+        <p className="settings-description">Edit the prompt used to plan research from the project goal and selected resources. Keep the required projectnote-research-plan-v1 JSON structure so plans can be downloaded and applied to the diagram. Use {'{{IMAGE_CATALOG}}'} and {'{{PROJECT_JSON}}'} for the source data. Saved to your account.</p>
         <form className="report-prompt-form" onSubmit={saveReportPrompt}>
-          <label htmlFor="report-generation-prompt">Report prompt</label>
-          <textarea id="report-generation-prompt" rows="7" maxLength="4000" value={reportPrompt} onChange={event => setReportPrompt(event.target.value)} required />
-          <div className="report-prompt-footer"><small>{reportPrompt.length}/4000</small><div>
+          <label htmlFor="report-generation-prompt">Full report prompt</label>
+          <textarea id="report-generation-prompt" rows="14" maxLength="12000" value={reportPrompt} onChange={event => setReportPrompt(event.target.value)} required />
+          <div className="report-prompt-footer"><small>{reportPrompt.length}/12000</small><div>
             <button className="secondary-setting-button" type="button" onClick={resetReportPrompt}>Restore default</button>
             <button className="primary-button" type="submit" disabled={!reportPrompt.trim()}>Save prompt</button>
           </div></div>
@@ -290,7 +287,7 @@ export default function SettingsView({ session, activeWorkspaceId, onChangeWorks
         <p className="settings-description">Review the exact project JSON and report prompt before sending anything to Google.</p>
         <label className="accessibility-toggle">
           <span><strong>Review report data before sending</strong><small>Show a confirmation with the full request payload.</small></span>
-          <input type="checkbox" checked={reviewReportData} onChange={event => { setReviewReportData(event.target.checked); saveReviewReportData(event.target.checked); onUpdateUserPreferences({ reviewReportData: event.target.checked }); }} />
+          <input type="checkbox" checked={reviewReportData} onChange={event => { setReviewReportData(event.target.checked); onUpdateUserPreferences({ reviewReportData: event.target.checked }); }} />
         </label>
       </section>
       <section className="settings-panel" aria-labelledby="gemini-settings-title">

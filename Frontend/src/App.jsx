@@ -181,7 +181,7 @@ function App() {
       if (changes.geminiWorkspaceId) window.localStorage.setItem('projectnote-gemini-workspace', changes.geminiWorkspaceId);
       else window.localStorage.removeItem('projectnote-gemini-workspace');
     }
-    updateUserPreferencesAPI(changes).catch(() => {});
+    return updateUserPreferencesAPI(changes).catch(() => null);
   };
 
   if (authLoading) return <div className="auth-loading">Connecting to ProjectNote…</div>;

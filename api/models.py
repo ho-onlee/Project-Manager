@@ -112,6 +112,30 @@ class Project(models.Model):
         return self.title
 
 
+class ProjectResearchPlan(models.Model):
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='research_plans')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='generated_research_plans')
+    title = models.CharField(max_length=255)
+    summary = models.TextField(blank=True, default='')
+    plan_json = models.JSONField()
+    source_project_json = models.JSONField(default=dict, blank=True)
+    prompt = models.TextField(blank=True, default='')
+    clarifications = models.JSONField(default=list, blank=True)
+    generation_fingerprint = models.CharField(max_length=64)
+    plan_fingerprint = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['project', 'generation_fingerprint'], name='unique_project_research_plan_generation'),
+        ]
+
+    def __str__(self):
+        return f'{self.title} for {self.project}'
+
+
 class ProjectNode(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='nodes')
