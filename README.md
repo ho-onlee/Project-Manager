@@ -19,6 +19,32 @@ ProjectNote is a multi-user visual workspace for organizing projects, mapping st
 - Frontend: React, Vite, Axios
 - Gemini credentials: Windows Credential Manager for local Windows use, or the `GEMINI_API_KEY` environment variable on a server
 
+## How to Use
+
+### 1. Set up your tools, skills, and environments
+
+Set up the tools and skills you have in the environments where you want to run your project. Add environments to describe the context, such as a healthcare or research setting, then add skills and tools and connect the reusable items to the work they support.
+
+<table>
+  <tr>
+    <td align="center"><img src="readme_img/tools.jpeg" alt="Tools catalog" width="100%"><br><strong>Tools</strong></td>
+    <td align="center"><img src="readme_img/skills.jpeg" alt="Skills catalog" width="100%"><br><strong>Skills</strong></td>
+    <td align="center"><img src="readme_img/env.jpeg" alt="Environment catalog" width="100%"><br><strong>Environments</strong></td>
+  </tr>
+</table>
+
+### 2. Set the diagram with a logical flow
+
+Open **Projects** and create nodes for goals, subjects, tools, skills, environments, and steps. Arrange the nodes and connect them with the appropriate relationships so the diagram reflects the project's logical flow.
+
+![Project diagram](readme_img/project.jpeg)
+
+### 3. Generate an AI report
+
+Configure Google Gemini in **Settings**, open the project, and choose **Generate report**. Review the project data and attached images in the privacy preview, then select **Send to Gemini** to create the Markdown report.
+
+![Generate AI report](readme_img/ai.jpeg)
+
 ## Requirements
 
 - Python compatible with the Django version in `requirements.txt`
@@ -81,6 +107,18 @@ docker compose down
 ```
 
 `docker compose down` preserves the database volume. To deliberately delete all Docker database data, use `docker compose down -v`. Back up PostgreSQL before upgrades or moving the deployment to another machine.
+
+#### Choose a host directory for Docker data
+
+By default, Docker stores PostgreSQL in its managed `postgres_data` volume. To choose a host directory instead, set an absolute path in `.env`, for example `PROJECTNOTE_DATA_DIR=D:/ProjectNoteData/postgres` on Windows, then start with the storage override:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.storage.yml up --build -d
+```
+
+Docker Desktop must be allowed to access the selected drive. The directory stores the complete PostgreSQL data directory. Project records, images, research-plan history, and encrypted Gemini API credentials are all in this database, so they persist together. Keep the same `DJANGO_SECRET_KEY` from `.env`; changing it makes existing encrypted Gemini credentials unreadable.
+
+For a new installation, select the directory before the first start. Switching an existing installation to a host directory does not copy the old named volume automatically. First back up PostgreSQL with `pg_dump` and restore it into the new database. Keep the old volume until you have verified the restored app; do not use `docker compose down -v` during the move.
 
 ### 2. Set up and start the web app
 
